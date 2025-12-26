@@ -1,20 +1,25 @@
 const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const path = require("path");
-const fs = require("fs");
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = "uploads/";
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath);
-        }
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + "-" + file.originalname);
-    }
+// Cloudinary Configuration
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const upload = multer({ storage });
+// Storage Configuration
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: "medbeacon_uploads",
+        allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
+        resource_type: "auto", // Auto-detect (image, raw for docs)
+    },
+});
+
+const upload = multer({ storage: storage });
 
 module.exports = upload;
