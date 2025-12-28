@@ -8,18 +8,19 @@ exports.completeProfile = async (req, res) => {
         const role = req.user.role;
         const profileData = { ...req.body };
 
-        // Handle file uploads
+        // Handle file uploads (Cloudinary URLs)
         if (req.files) {
             if (req.files.profilePicUrl) {
-                profileData.profilePicUrl = `/uploads/${req.files.profilePicUrl[0].filename}`;
+                // Use Cloudinary URL from req.files.path
+                profileData.profilePicUrl = req.files.profilePicUrl[0].path;
                 // Update user profile pic
                 await User.findOneAndUpdate({ id: userId }, { profilePicUrl: profileData.profilePicUrl });
             }
             if (role === "patient" && req.files.treatmentFileUrl) {
-                profileData.treatmentFileUrl = `/uploads/${req.files.treatmentFileUrl[0].filename}`;
+                profileData.treatmentFileUrl = req.files.treatmentFileUrl[0].path;
             }
             if (role === "doctor" && req.files.proofFileUrl) {
-                profileData.proofFileUrl = `/uploads/${req.files.proofFileUrl[0].filename}`;
+                profileData.proofFileUrl = req.files.proofFileUrl[0].path;
             }
         }
 
