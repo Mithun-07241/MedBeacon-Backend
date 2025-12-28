@@ -1,16 +1,36 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // true for 465, false for other ports
     auth: {
-        // Support both naming conventions
         user: process.env.EMAIL_USER || process.env.SMTP_USER,
         pass: process.env.EMAIL_PASS || process.env.SMTP_PASS,
     },
+    tls: {
+        rejectUnauthorized: false, // Accept self-signed certificates (for some hosting platforms)
+        ciphers: 'SSLv3'
+    },
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+});
+
+// Verify transporter configuration on startup
+transporter.verify(function (error, success) {
+    if (error) {
+        console.error("❌ SMTP Configuration Error:", error);
+        console.error("Check your EMAIL_USER and EMAIL_PASS environment variables");
+    } else {
+        console.log("✅ SMTP Server is ready to send emails");
+    }
 });
 
 const sendOTP = async (email, otp) => {
     try {
+        console.log(`📧 Attempting to send OTP to: ${email}`);
+
         const info = await transporter.sendMail({
             from: process.env.MAIL_FROM || process.env.SMTP_USER || '"MedBeacon" <no-reply@medbeacon.com>', // sender address
             to: email, // list of receivers
@@ -39,15 +59,20 @@ const sendOTP = async (email, otp) => {
             `, // html body
         });
 
-        console.log("Message sent: %s", info.messageId);
-        // Preview only available when sending through an Ethereal account
+        console.log("✅ Message sent successfully: %s", info.messageId);
         console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
         console.log("====================================================");
-        console.log("DEV MODE OTP: %s", otp);
+        console.log("🔐 DEV MODE OTP: %s", otp);
         console.log("====================================================");
         return true;
     } catch (error) {
-        console.error("Error sending email: ", error);
+        console.error("❌ Error sending email: ", error);
+        console.error("Error details:", {
+            code: error.code,
+            command: error.command,
+            response: error.response,
+            responseCode: error.responseCode
+        });
         return false;
     }
 };
