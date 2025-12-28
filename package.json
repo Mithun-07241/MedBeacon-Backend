@@ -9,6 +9,7 @@
     "build": "pkg . --targets node18-win-x64 --output bin/backend"
   },
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
