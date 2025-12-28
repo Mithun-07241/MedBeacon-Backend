@@ -3,7 +3,7 @@ const sgMail = require('@sendgrid/mail');
 
 // SendGrid API configuration (works on all hosting platforms)
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const FROM_EMAIL = process.env.EMAIL_USER || process.env.SENDGRID_FROM_EMAIL || 'noreply@medbeacon.com';
+const FROM_EMAIL = process.env.SMTP_USER || process.env.SENDGRID_FROM_EMAIL || 'noreply@medbeacon.com';
 
 // Initialize SendGrid
 if (SENDGRID_API_KEY) {
@@ -151,3 +151,4 @@ const sendOTP = async (email, otp) => {
 };
 
 module.exports = { sendOTP };
+
