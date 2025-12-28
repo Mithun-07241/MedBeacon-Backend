@@ -2,7 +2,8 @@ const nodemailer = require("nodemailer");
 
 // Resend API configuration (works on all hosting platforms)
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+// Use user's email if provided, otherwise fall back to default
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_USER || 'onboarding@resend.dev';
 
 // Gmail SMTP fallback (for local development)
 const transporter = nodemailer.createTransport({
