@@ -13,10 +13,15 @@ cloudinary.config({
 // Storage Configuration
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
-    params: {
-        folder: "medbeacon_uploads",
-        allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
-        resource_type: "auto", // Auto-detect (image, raw for docs)
+    params: (req, file) => {
+        // Determine resource type based on file mimetype
+        const isImage = file.mimetype.startsWith('image/');
+
+        return {
+            folder: "medbeacon_uploads",
+            allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
+            resource_type: isImage ? "image" : "raw",
+        };
     },
 });
 
