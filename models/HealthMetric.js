@@ -16,6 +16,7 @@ const healthMetricSchema = new mongoose.Schema({
     bloodPressureSystolic: Number,
     bloodPressureDiastolic: Number,
     weight: Number,
+    oxygenSaturation: Number,
     timestamp: {
         type: Date,
         default: Date.now

@@ -73,10 +73,27 @@ exports.getProfileDetails = async (req, res) => {
 
         if (role === "patient") {
             const details = await PatientDetail.findOne({ userId });
-            return res.json({ patient: details });
+            // Get username and email from User model
+            const user = await User.findOne({ id: userId });
+            const patientData = details ? details.toObject() : {};
+            return res.json({
+                patient: {
+                    ...patientData,
+                    username: user?.username,
+                    email: user?.email
+                }
+            });
         } else if (role === "doctor") {
             const details = await DoctorDetail.findOne({ userId });
-            return res.json({ doctor: details });
+            const user = await User.findOne({ id: userId });
+            const doctorData = details ? details.toObject() : {};
+            return res.json({
+                doctor: {
+                    ...doctorData,
+                    username: user?.username,
+                    email: user?.email
+                }
+            });
         } else {
             return res.status(400).json({ error: "Invalid role" });
         }
@@ -293,3 +310,41 @@ exports.updateProfile = async (req, res) => {
         res.status(500).json({ error: error.message || "Failed to update profile" });
     }
 };
+
+exports.uploadTreatmentFile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        if (role !== "patient") {
+            return res.status(403).json({ error: "Only patients can upload treatment files" });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        // File is uploaded to Cloudinary via multer middleware
+        const treatmentFileUrl = req.file.path;
+
+        // Update patient details with new treatment file URL
+        const updated = await PatientDetail.findOneAndUpdate(
+            { userId },
+            { treatmentFileUrl },
+            { new: true }
+        );
+
+        if (!updated) {
+            return res.status(404).json({ error: "Patient profile not found" });
+        }
+
+        res.json({
+            message: "Treatment file uploaded successfully",
+            treatmentFileUrl
+        });
+    } catch (error) {
+        console.error("Upload Treatment File Error:", error);
+        res.status(500).json({ error: error.message || "Failed to upload treatment file" });
+    }
+};
+
