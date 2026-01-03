@@ -6,7 +6,8 @@ const {
     getPatientById,
     updateCompletionStatus,
     getPatients,
-    getDoctors
+    getDoctors,
+    updateProfile
 } = require("../controllers/userController");
 const authMiddleware = require("../middleware/auth");
 const upload = require("../middleware/upload");
@@ -24,6 +25,7 @@ router.post(
 
 router.get("/profile/details", authMiddleware, getProfileDetails);
 router.patch("/profile/update-completion", authMiddleware, updateCompletionStatus);
+router.patch("/profile/update", authMiddleware, updateProfile);
 
 router.get("/patients", authMiddleware, getPatients);
 router.get("/patients/:id", authMiddleware, getPatientById);

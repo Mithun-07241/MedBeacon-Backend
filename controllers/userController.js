@@ -10,18 +10,24 @@ exports.completeProfile = async (req, res) => {
 
         // Handle file uploads (Cloudinary URLs)
         if (req.files) {
+            console.log("Files received:", Object.keys(req.files));
             if (req.files.profilePicUrl) {
                 // Use Cloudinary URL from req.files.path
+                console.log("Profile pic uploaded:", req.files.profilePicUrl[0].path);
                 profileData.profilePicUrl = req.files.profilePicUrl[0].path;
                 // Update user profile pic
                 await User.findOneAndUpdate({ id: userId }, { profilePicUrl: profileData.profilePicUrl });
             }
             if (role === "patient" && req.files.treatmentFileUrl) {
+                console.log("Treatment file uploaded:", req.files.treatmentFileUrl[0].path);
                 profileData.treatmentFileUrl = req.files.treatmentFileUrl[0].path;
             }
             if (role === "doctor" && req.files.proofFileUrl) {
+                console.log("Proof file uploaded:", req.files.proofFileUrl[0].path);
                 profileData.proofFileUrl = req.files.proofFileUrl[0].path;
             }
+        } else {
+            console.log("No files received in request");
         }
 
         // Trim strings
@@ -203,5 +209,77 @@ exports.getDoctors = async (req, res) => {
     } catch (error) {
         console.error("Get Doctors Error:", error);
         res.status(500).json({ error: "Failed to fetch doctors" });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const role = req.user.role;
+        const updateData = { ...req.body };
+
+        // Remove fields that shouldn't be updated directly
+        delete updateData.userId;
+        delete updateData._id;
+        delete updateData.createdAt;
+        delete updateData.updatedAt;
+
+        // Trim string fields
+        ["firstName", "lastName", "dateOfBirth", "phoneNumber", "address", "allergies", "specialization", "experience", "gender", "bio", "education", "certifications", "hospital", "languages"].forEach(field => {
+            if (updateData[field] && typeof updateData[field] === "string") {
+                updateData[field] = updateData[field].trim();
+            }
+        });
+
+        let updated;
+        if (role === "patient") {
+            updated = await PatientDetail.findOneAndUpdate(
+                { userId },
+                updateData,
+                { new: true, runValidators: true }
+            );
+
+            // Also update User model if firstName/lastName changed
+            if (updateData.firstName || updateData.lastName) {
+                await User.findOneAndUpdate(
+                    { id: userId },
+                    {
+                        firstName: updateData.firstName,
+                        lastName: updateData.lastName
+                    }
+                );
+            }
+        } else if (role === "doctor") {
+            updated = await DoctorDetail.findOneAndUpdate(
+                { userId },
+                updateData,
+                { new: true, runValidators: true }
+            );
+
+            // Also update User model if firstName/lastName changed
+            if (updateData.firstName || updateData.lastName) {
+                await User.findOneAndUpdate(
+                    { id: userId },
+                    {
+                        firstName: updateData.firstName,
+                        lastName: updateData.lastName
+                    }
+                );
+            }
+        } else {
+            return res.status(400).json({ error: "Invalid role" });
+        }
+
+        if (!updated) {
+            return res.status(404).json({ error: "Profile not found" });
+        }
+
+        res.json({
+            message: "Profile updated successfully",
+            [role]: updated
+        });
+    } catch (error) {
+        console.error("Update Profile Error:", error);
+        res.status(500).json({ error: error.message || "Failed to update profile" });
     }
 };
