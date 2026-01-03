@@ -7,6 +7,12 @@ const doctorDetailSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    firstName: {
+        type: String
+    },
+    lastName: {
+        type: String
+    },
     dateOfBirth: {
         type: String,
         required: true
@@ -28,6 +34,9 @@ const doctorDetailSchema = new mongoose.Schema({
     hospitalAffiliation: {
         type: String
     },
+    hospital: {
+        type: String
+    },
     proofFileUrl: {
         type: String
     },
@@ -39,6 +48,29 @@ const doctorDetailSchema = new mongoose.Schema({
     },
     gender: {
         type: String
+    },
+    bio: {
+        type: String
+    },
+    education: {
+        type: String
+    },
+    graduationYear: {
+        type: String
+    },
+    certifications: {
+        type: String
+    },
+    languages: {
+        type: String
+    },
+    availability: {
+        type: String,
+        enum: ["available", "busy", "unavailable"],
+        default: "available"
+    },
+    expertise: {
+        type: [String]
     },
     verificationStatus: {
         type: String,

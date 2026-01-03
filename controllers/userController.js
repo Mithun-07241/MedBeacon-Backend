@@ -193,15 +193,24 @@ exports.getDoctors = async (req, res) => {
                     email: 1,
                     role: 1,
                     profilePicUrl: 1,
+                    firstName: "$details.firstName",
+                    lastName: "$details.lastName",
                     phoneNumber: "$details.phoneNumber",
                     age: "$details.age",
                     gender: "$details.gender",
                     experience: "$details.experience",
                     dateOfBirth: "$details.dateOfBirth",
                     address: "$details.address",
-                    allergies: "$details.allergies",
                     specialization: "$details.specialization",
-                    proofFileUrl: "$details.proofFileUrl"
+                    proofFileUrl: "$details.proofFileUrl",
+                    bio: "$details.bio",
+                    education: "$details.education",
+                    graduationYear: "$details.graduationYear",
+                    certifications: "$details.certifications",
+                    hospital: "$details.hospital",
+                    languages: "$details.languages",
+                    availability: "$details.availability",
+                    expertise: "$details.expertise"
                 }
             }
         ]);
