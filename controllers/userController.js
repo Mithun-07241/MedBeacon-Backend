@@ -125,13 +125,11 @@ exports.getPatients = async (req, res) => {
     try {
         if (req.user.role !== "doctor") return res.status(403).json({ error: "Access denied" });
 
-        // Aggregation to join User and PatientDetail
-        // Trying to mimic storage.ts: getPatients
         const patients = await User.aggregate([
             { $match: { role: "patient" } },
             {
                 $lookup: {
-                    from: "patientdetails", // Mongoose/Mongo lowercase plural convention usually
+                    from: "patientdetails",
                     localField: "id",
                     foreignField: "userId",
                     as: "details"
@@ -146,21 +144,20 @@ exports.getPatients = async (req, res) => {
                     email: 1,
                     role: 1,
                     profilePicUrl: 1,
-                    userName: "$details.username", // User.username? No, schema.ts had userName: details.username which might be undefined/User.username
-                    // Actually schema.ts mapped: userName: "$details.username" BUT PatientDetail in mongoose doesn't have username.
-                    // Wait, in storage.ts line 235: userName: "$details.username".
-                    // And in schema.ts line 32: User has firstName/lastName.
-                    // In routes.ts, the User model was reused.
-                    // I will assume User.username is what we want.
-                    // But details doesn't have username.
-                    // I'll fix this to use User.username.
+                    firstName: "$details.firstName",
+                    lastName: "$details.lastName",
                     phoneNumber: "$details.phoneNumber",
                     age: "$details.age",
                     gender: "$details.gender",
                     dateOfBirth: "$details.dateOfBirth",
                     address: "$details.address",
                     allergies: "$details.allergies",
-                    treatmentFileUrl: "$details.treatmentFileUrl"
+                    treatmentFileUrl: "$details.treatmentFileUrl",
+                    bio: "$details.bio",
+                    emergencyContactName: "$details.emergencyContactName",
+                    emergencyContactPhone: "$details.emergencyContactPhone",
+                    bloodType: "$details.bloodType",
+                    medicalHistory: "$details.medicalHistory"
                 }
             }
         ]);
@@ -248,14 +245,16 @@ exports.updateProfile = async (req, res) => {
                 { new: true, runValidators: true }
             );
 
-            // Also update User model if firstName/lastName changed
-            if (updateData.firstName || updateData.lastName) {
+            // Also update User model if username, firstName, or lastName changed
+            const userUpdates = {};
+            if (updateData.username) userUpdates.username = updateData.username;
+            if (updateData.firstName) userUpdates.firstName = updateData.firstName;
+            if (updateData.lastName) userUpdates.lastName = updateData.lastName;
+
+            if (Object.keys(userUpdates).length > 0) {
                 await User.findOneAndUpdate(
                     { id: userId },
-                    {
-                        firstName: updateData.firstName,
-                        lastName: updateData.lastName
-                    }
+                    userUpdates
                 );
             }
         } else if (role === "doctor") {
@@ -265,14 +264,16 @@ exports.updateProfile = async (req, res) => {
                 { new: true, runValidators: true }
             );
 
-            // Also update User model if firstName/lastName changed
-            if (updateData.firstName || updateData.lastName) {
+            // Also update User model if username, firstName, or lastName changed
+            const userUpdates = {};
+            if (updateData.username) userUpdates.username = updateData.username;
+            if (updateData.firstName) userUpdates.firstName = updateData.firstName;
+            if (updateData.lastName) userUpdates.lastName = updateData.lastName;
+
+            if (Object.keys(userUpdates).length > 0) {
                 await User.findOneAndUpdate(
                     { id: userId },
-                    {
-                        firstName: updateData.firstName,
-                        lastName: updateData.lastName
-                    }
+                    userUpdates
                 );
             }
         } else {

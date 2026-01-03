@@ -7,6 +7,12 @@ const patientDetailSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    firstName: {
+        type: String
+    },
+    lastName: {
+        type: String
+    },
     dateOfBirth: {
         type: String,
         required: true
@@ -20,19 +26,33 @@ const patientDetailSchema = new mongoose.Schema({
         required: true
     },
     allergies: {
-        type: String,
-        default: ""
-    },
-    profilePicUrl: {
         type: String
     },
     treatmentFileUrl: {
         type: String
     },
-    age: { // Derived or stored, keeping it simple as stored for now as per previous logic
-        type: Number
+    profilePicUrl: {
+        type: String
+    },
+    age: {
+        type: String
     },
     gender: {
+        type: String
+    },
+    bio: {
+        type: String
+    },
+    emergencyContactName: {
+        type: String
+    },
+    emergencyContactPhone: {
+        type: String
+    },
+    bloodType: {
+        type: String
+    },
+    medicalHistory: {
         type: String
     }
 }, {
