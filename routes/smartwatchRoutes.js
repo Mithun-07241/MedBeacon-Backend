@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const smartwatchController = require('../controllers/smartwatchController');
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/auth');
 
 // All routes require authentication
 router.use(authMiddleware);
