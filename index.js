@@ -49,6 +49,8 @@ const reportRoutes = require("./routes/reportRoutes");
 const ticketRoutes = require("./routes/ticketRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
 const healthMetricsRoutes = require("./routes/healthMetricsRoutes");
+const callRoutes = require("./routes/callRoutes");
+const fcmRoutes = require("./routes/fcmRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -76,6 +78,8 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/metrics", healthMetricsRoutes);
+app.use("/api/calls", callRoutes);
+app.use("/api/fcm", fcmRoutes);
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));
@@ -87,8 +91,22 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Something went wrong!", details: err.message });
 });
 
-// Init Socket
+// Init Socket (existing chat socket)
 initSocket(server);
+
+// Init Call Socket.IO
+const { Server } = require("socket.io");
+const { setupSocketIO } = require("./socketServer");
+
+const io = new Server(server, {
+    cors: {
+        origin: true,
+        credentials: true
+    },
+    path: "/socket.io/"
+});
+
+setupSocketIO(io);
 
 const PORT = process.env.PORT || 5000;
 
