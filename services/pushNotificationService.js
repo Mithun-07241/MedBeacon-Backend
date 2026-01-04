@@ -12,15 +12,22 @@ const initializeFirebase = () => {
         // Check if service account key is provided
         const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-        if (serviceAccount) {
+        if (!serviceAccount || serviceAccount.trim() === '' || serviceAccount === 'YOUR_SERVICE_ACCOUNT_KEY') {
+            console.warn('⚠️  Firebase service account key not found. Push notifications will not work.');
+            console.warn('   Add FIREBASE_SERVICE_ACCOUNT_KEY to your .env file');
+            return;
+        }
+
+        try {
+            const parsedKey = JSON.parse(serviceAccount);
             admin.initializeApp({
-                credential: admin.credential.cert(JSON.parse(serviceAccount))
+                credential: admin.credential.cert(parsedKey)
             });
             firebaseInitialized = true;
             console.log('✅ Firebase Admin SDK initialized');
-        } else {
-            console.warn('⚠️  Firebase service account key not found. Push notifications will not work.');
-            console.warn('   Add FIREBASE_SERVICE_ACCOUNT_KEY to your .env file');
+        } catch (parseError) {
+            console.error('❌ Failed to parse Firebase service account key:', parseError.message);
+            console.warn('   Make sure the JSON is valid and on a single line');
         }
     } catch (error) {
         console.error('❌ Failed to initialize Firebase:', error.message);

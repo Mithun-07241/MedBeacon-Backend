@@ -4,13 +4,18 @@ const onlineUsers = new Map(); // userId -> socketId
 
 let io;
 
-const initSocket = (server) => {
-    io = new Server(server, {
-        cors: {
-            origin: "*", // Allowing all for development ease, restrict in prod
-            credentials: true
-        }
-    });
+const initSocket = (server, existingIo) => {
+    // Use existing io instance if provided, otherwise create new one
+    if (existingIo) {
+        io = existingIo;
+    } else {
+        io = new Server(server, {
+            cors: {
+                origin: "*", // Allowing all for development ease, restrict in prod
+                credentials: true
+            }
+        });
+    }
 
     io.on("connection", (socket) => {
         console.log("✅ Socket Connected:", socket.id);

@@ -91,10 +91,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Something went wrong!", details: err.message });
 });
 
-// Init Socket (existing chat socket)
-initSocket(server);
-
-// Init Call Socket.IO
+// Init Socket.IO (for both chat and calls)
 const { Server } = require("socket.io");
 const { setupSocketIO } = require("./socketServer");
 
@@ -106,6 +103,10 @@ const io = new Server(server, {
     path: "/socket.io/"
 });
 
+// Initialize chat socket
+initSocket(server, io);
+
+// Initialize call socket
 setupSocketIO(io);
 
 const PORT = process.env.PORT || 5000;
