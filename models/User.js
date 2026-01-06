@@ -49,6 +49,18 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    fcmPlatform: {
+        type: String,
+        default: null
+    },
+    fcmDeviceId: {
+        type: String,
+        default: null
+    },
+    fcmUpdatedAt: {
+        type: Date,
+        default: null
+    },
     isOnline: {
         type: Boolean,
         default: false
