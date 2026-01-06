@@ -1,7 +1,39 @@
 const User = require('../models/User');
 
 /**
- * Update user's FCM token
+ * Register/Update user's FCM token with platform info
+ * @route POST /api/fcm/register
+ */
+exports.registerFCMToken = async (req, res) => {
+    try {
+        const { fcmToken, platform, deviceId } = req.body;
+        const userId = req.user.id;
+
+        if (!fcmToken) {
+            return res.status(400).json({ error: 'FCM token is required' });
+        }
+
+        await User.findOneAndUpdate(
+            { id: userId },
+            {
+                fcmToken,
+                fcmPlatform: platform || 'unknown',
+                fcmDeviceId: deviceId || 'unknown',
+                fcmUpdatedAt: new Date()
+            },
+            { new: true }
+        );
+
+        console.log(`✅ FCM token registered for user ${userId} (${platform})`);
+        res.json({ message: 'FCM token registered successfully' });
+    } catch (error) {
+        console.error('Register FCM token error:', error);
+        res.status(500).json({ error: error.message || 'Failed to register FCM token' });
+    }
+};
+
+/**
+ * Update user's FCM token (legacy endpoint)
  * @route POST /api/fcm/token
  */
 exports.updateFCMToken = async (req, res) => {

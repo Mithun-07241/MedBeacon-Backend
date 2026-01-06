@@ -51,7 +51,6 @@ const settingsRoutes = require("./routes/settingsRoutes");
 const healthMetricsRoutes = require("./routes/healthMetricsRoutes");
 const callRoutes = require("./routes/callRoutes");
 const fcmRoutes = require("./routes/fcmRoutes");
-const smartwatchRoutes = require("./routes/smartwatchRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -81,7 +80,6 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/metrics", healthMetricsRoutes);
 app.use("/api/calls", callRoutes);
 app.use("/api/fcm", fcmRoutes);
-app.use("/api/smartwatch", smartwatchRoutes);
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));
@@ -93,7 +91,10 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: "Something went wrong!", details: err.message });
 });
 
-// Init Socket.IO (for both chat and calls)
+// Init Socket (existing chat socket)
+initSocket(server);
+
+// Init Call Socket.IO
 const { Server } = require("socket.io");
 const { setupSocketIO } = require("./socketServer");
 
@@ -105,10 +106,6 @@ const io = new Server(server, {
     path: "/socket.io/"
 });
 
-// Initialize chat socket
-initSocket(server, io);
-
-// Initialize call socket
 setupSocketIO(io);
 
 const PORT = process.env.PORT || 5000;

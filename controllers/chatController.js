@@ -1,5 +1,8 @@
 const Message = require("../models/Message");
 const Conversation = require("../models/Conversation");
+const User = require("../models/User");
+const { userSockets } = require("../socketServer");
+const { sendMessageNotification } = require("../services/pushNotificationService");
 
 exports.getHistory = async (req, res) => {
     try {
@@ -38,6 +41,39 @@ exports.sendMessage = async (req, res) => {
             },
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
+
+        // Determine recipient
+        const recipientId = req.user.role === "doctor" ? patientId : doctorId;
+
+        // Check if recipient is online
+        const isOnline = userSockets.has(recipientId);
+
+        if (!isOnline) {
+            // Recipient is offline, send FCM push notification
+            console.log(`Recipient ${recipientId} is offline, sending FCM push...`);
+
+            try {
+                const recipient = await User.findOne({ id: recipientId });
+
+                if (recipient && recipient.fcmToken) {
+                    await sendMessageNotification(recipient.fcmToken, {
+                        senderId: req.user.id,
+                        senderName: req.user.username || req.user.email,
+                        messageText: text,
+                        conversationId: `${doctorId}_${patientId}`,
+                        doctorId,
+                        patientId
+                    });
+                    console.log('✅ FCM push notification sent to offline user');
+                } else {
+                    console.warn('⚠️  Recipient has no FCM token registered');
+                }
+            } catch (pushError) {
+                console.error('Failed to send FCM push notification:', pushError);
+            }
+        } else {
+            console.log(`Recipient ${recipientId} is online, notification via socket`);
+        }
 
         res.status(201).json(message);
     } catch (error) {

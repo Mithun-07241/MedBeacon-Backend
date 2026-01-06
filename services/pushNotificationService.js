@@ -12,22 +12,15 @@ const initializeFirebase = () => {
         // Check if service account key is provided
         const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-        if (!serviceAccount || serviceAccount.trim() === '' || serviceAccount === 'YOUR_SERVICE_ACCOUNT_KEY') {
-            console.warn('⚠️  Firebase service account key not found. Push notifications will not work.');
-            console.warn('   Add FIREBASE_SERVICE_ACCOUNT_KEY to your .env file');
-            return;
-        }
-
-        try {
-            const parsedKey = JSON.parse(serviceAccount);
+        if (serviceAccount) {
             admin.initializeApp({
-                credential: admin.credential.cert(parsedKey)
+                credential: admin.credential.cert(JSON.parse(serviceAccount))
             });
             firebaseInitialized = true;
             console.log('✅ Firebase Admin SDK initialized');
-        } catch (parseError) {
-            console.error('❌ Failed to parse Firebase service account key:', parseError.message);
-            console.warn('   Make sure the JSON is valid and on a single line');
+        } else {
+            console.warn('⚠️  Firebase service account key not found. Push notifications will not work.');
+            console.warn('   Add FIREBASE_SERVICE_ACCOUNT_KEY to your .env file');
         }
     } catch (error) {
         console.error('❌ Failed to initialize Firebase:', error.message);
@@ -166,8 +159,69 @@ const sendCallEndedNotification = async (fcmToken, callData) => {
     }
 };
 
+/**
+ * Send a message notification to a user
+ * @param {string} fcmToken - User's FCM device token
+ * @param {object} messageData - Message information
+ * @returns {Promise<void>}
+ */
+const sendMessageNotification = async (fcmToken, messageData) => {
+    if (!firebaseInitialized) {
+        console.warn('Firebase not initialized. Skipping notification.');
+        return;
+    }
+
+    try {
+        const { senderId, senderName, messageText, conversationId, doctorId, patientId } = messageData;
+
+        const message = {
+            token: fcmToken,
+            notification: {
+                title: `💬 New message from ${senderName}`,
+                body: messageText.substring(0, 100),
+            },
+            data: {
+                type: 'message',
+                senderId,
+                senderName,
+                conversationId: conversationId || `${doctorId}_${patientId}`,
+                doctorId: doctorId || '',
+                patientId: patientId || '',
+                timestamp: Date.now().toString()
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'messages',
+                    priority: 'high',
+                    defaultSound: true,
+                    defaultVibrateTimings: true,
+                    tag: conversationId || `${doctorId}_${patientId}`
+                }
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        sound: 'default',
+                        badge: 1,
+                        category: 'MESSAGE'
+                    }
+                }
+            }
+        };
+
+        const response = await admin.messaging().send(message);
+        console.log('✅ Message notification sent successfully:', response);
+        return response;
+    } catch (error) {
+        console.error('❌ Failed to send message notification:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     sendCallNotification,
     sendMissedCallNotification,
-    sendCallEndedNotification
+    sendCallEndedNotification,
+    sendMessageNotification
 };

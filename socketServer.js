@@ -1,5 +1,5 @@
-const User = require('./models/User');
-const { sendCallNotification } = require('./services/pushNotificationService');
+const User = require('../models/User');
+const { sendCallNotification } = require('../services/pushNotificationService');
 
 // Store active socket connections
 const userSockets = new Map(); // userId -> socketId
