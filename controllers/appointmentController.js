@@ -89,17 +89,26 @@ exports.getAppointments = async (req, res) => {
         const role = req.user.role;
 
         let match = {};
-        if (role === "patient") {
-            match = { patientId: userId };
-        } else if (role === "doctor") {
-            match = { doctorId: userId };
+
+        // Handle /patient/:id route
+        if (req.params.id) {
+            if (role === "doctor") {
+                // Doctor viewing specific patient's appointments
+                match = { patientId: req.params.id };
+            } else {
+                return res.status(403).json({ error: "Access denied" });
+            }
         } else {
-            return res.status(400).json({ error: "Invalid role" });
+            // Regular route - show user's own appointments
+            if (role === "patient") {
+                match = { patientId: userId };
+            } else if (role === "doctor") {
+                match = { doctorId: userId };
+            } else {
+                return res.status(400).json({ error: "Invalid role" });
+            }
         }
 
-        // Using aggregation similar to storage.ts
-        // We need to define the pipeline manually since populateAppointment assumes starting from collection?
-        // Actually, I can construct the pipeline.
         const pipeline = [
             { $match: match },
             // ... Same lookups as above

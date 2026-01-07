@@ -9,6 +9,7 @@ const {
 const authMiddleware = require("../middleware/auth");
 
 router.get("/", authMiddleware, getMedications);
+router.get("/patient/:id", authMiddleware, getMedications);
 router.post("/", authMiddleware, createMedication);
 router.patch("/:id", authMiddleware, updateMedication);
 router.delete("/:id", authMiddleware, deleteMedication);

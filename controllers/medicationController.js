@@ -6,12 +6,15 @@ exports.getMedications = async (req, res) => {
         // If patient, only show own meds. If doctor, can query by patientId
         if (req.user.role === 'patient') {
             query.patientId = req.user.id;
+        } else if (req.params.id) {
+            // For /patient/:id route
+            query.patientId = req.params.id;
         } else if (req.query.patientId) {
             query.patientId = req.query.patientId;
         }
 
         const medications = await Medication.find(query).sort({ createdAt: -1 });
-        res.status(200).json({ medications });
+        res.status(200).json(medications);
     } catch (error) {
         res.status(500).json({ message: "Error fetching medications", error: error.message });
     }

@@ -5,12 +5,15 @@ exports.getHealthMetrics = async (req, res) => {
         const query = {};
         if (req.user.role === 'patient') {
             query.patientId = req.user.id;
+        } else if (req.params.id) {
+            // For /patient/:id route
+            query.patientId = req.params.id;
         } else if (req.query.patientId) {
             query.patientId = req.query.patientId;
         }
 
         const metrics = await HealthMetric.find(query).sort({ timestamp: -1 });
-        res.status(200).json({ metrics });
+        res.status(200).json(metrics);
     } catch (error) {
         res.status(500).json({ message: "Error fetching health metrics", error: error.message });
     }
