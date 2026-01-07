@@ -111,11 +111,28 @@ exports.getPatientById = async (req, res) => {
             return res.status(403).json({ error: "Access denied" });
         }
 
+        // Get patient details
         const details = await PatientDetail.findOne({ userId: id });
         if (!details) return res.status(404).json({ error: "Patient not found" });
 
-        res.json({ patient: details });
+        // Get user data for username, email, profilePicUrl
+        const user = await User.findOne({ id });
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        const patientData = details.toObject();
+
+        // Merge user data with patient details
+        res.json({
+            patient: {
+                ...patientData,
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                profilePicUrl: user.profilePicUrl || patientData.profilePicUrl,
+            }
+        });
     } catch (error) {
+        console.error("Get Patient By ID Error:", error);
         res.status(500).json({ error: "Failed to fetch patient details" });
     }
 };
