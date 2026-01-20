@@ -42,7 +42,7 @@ exports.signup = async (req, res) => {
         });
 
         // Send OTP via email
-        const emailSent = await sendOTP(email, otp);
+        const emailSent = await sendOTP(email, otp, newUser._id);
         if (!emailSent) {
             // Optional: delete user if email fails? Or just return warning?
             console.error("Failed to send OTP email to", email);
@@ -190,7 +190,7 @@ exports.resendOTP = async (req, res) => {
         user.otpExpires = otpExpires;
         await user.save();
 
-        const emailSent = await sendOTP(email, otp);
+        const emailSent = await sendOTP(email, otp, user._id);
         if (!emailSent) {
             return res.status(500).json({ error: "Failed to send OTP email" });
         }
