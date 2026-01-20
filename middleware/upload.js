@@ -17,10 +17,15 @@ const storage = new CloudinaryStorage({
         // Determine resource type based on file mimetype
         const isImage = file.mimetype.startsWith('image/');
 
+        // Extract file extension from original filename
+        const fileExtension = path.extname(file.originalname).substring(1); // Remove the dot
+
         return {
             folder: "medbeacon_uploads",
             allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
             resource_type: isImage ? "image" : "raw",
+            format: fileExtension, // Preserve the original file extension
+            public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`, // Use timestamp + original filename without extension
         };
     },
 });
