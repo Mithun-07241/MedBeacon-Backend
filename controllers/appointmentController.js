@@ -56,6 +56,9 @@ const populateAppointment = async (query) => {
                     reason: 1,
                     notes: 1,
                     status: 1,
+                    rating: 1,
+                    feedback: 1,
+                    rated: 1,
                     createdAt: 1,
                     updatedAt: 1,
                     patient: {
@@ -362,5 +365,110 @@ exports.deleteAppointment = async (req, res) => {
         res.json({ message: "Deleted" });
     } catch (error) {
         res.status(500).json({ error: "Failed delete" });
+    }
+};
+
+// Submit rating for an appointment
+exports.submitRating = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rating, feedback } = req.body;
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        // Only patients can rate
+        if (role !== "patient") {
+            return res.status(403).json({ error: "Only patients can rate appointments" });
+        }
+
+        // Validate rating
+        if (!rating || rating < 1 || rating > 5) {
+            return res.status(400).json({ error: "Rating must be between 1 and 5" });
+        }
+
+        const appointment = await Appointment.findById(id);
+        if (!appointment) {
+            return res.status(404).json({ error: "Appointment not found" });
+        }
+
+        // Verify appointment belongs to patient
+        if (appointment.patientId !== userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Only completed appointments can be rated
+        if (appointment.status !== "completed") {
+            return res.status(400).json({ error: "Only completed appointments can be rated" });
+        }
+
+        // Check if already rated
+        if (appointment.rated) {
+            return res.status(400).json({ error: "Appointment already rated" });
+        }
+
+        // Update appointment with rating
+        appointment.rating = rating;
+        appointment.feedback = feedback || "";
+        appointment.rated = true;
+
+        await appointment.save();
+
+        res.json({
+            success: true,
+            message: "Rating submitted successfully",
+            appointment
+        });
+    } catch (error) {
+        console.error("Submit Rating Error:", error);
+        res.status(500).json({ error: "Failed to submit rating" });
+    }
+};
+
+// Get doctor stats (completed appointments count and average rating)
+exports.getDoctorStats = async (req, res) => {
+    try {
+        const { doctorId } = req.params;
+
+        const stats = await Appointment.aggregate([
+            { $match: { doctorId, status: "completed" } },
+            {
+                $group: {
+                    _id: null,
+                    completedCount: { $sum: 1 },
+                    totalRatings: {
+                        $sum: { $cond: [{ $eq: ["$rated", true] }, 1, 0] }
+                    },
+                    sumRatings: {
+                        $sum: { $cond: [{ $eq: ["$rated", true] }, "$rating", 0] }
+                    }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    completedCount: 1,
+                    totalRatings: 1,
+                    averageRating: {
+                        $cond: [
+                            { $gt: ["$totalRatings", 0] },
+                            { $divide: ["$sumRatings", "$totalRatings"] },
+                            0
+                        ]
+                    }
+                }
+            }
+        ]);
+
+        // If no completed appointments, return zeros
+        const result = stats[0] || {
+            completedCount: 0,
+            totalRatings: 0,
+            averageRating: 0
+        };
+
+        res.json(result);
+    } catch (error) {
+        console.error("Get Doctor Stats Error:", error);
+        res.status(500).json({ error: "Failed to fetch doctor stats" });
     }
 };
