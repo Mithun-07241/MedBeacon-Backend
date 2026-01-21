@@ -161,6 +161,9 @@ exports.getAppointments = async (req, res) => {
                     reason: 1,
                     notes: 1,
                     status: 1,
+                    rating: 1,
+                    feedback: 1,
+                    rated: 1,
                     createdAt: 1,
                     updatedAt: 1,
                     patient: {
@@ -252,6 +255,9 @@ exports.getAppointmentById = async (req, res) => {
                     reason: 1,
                     notes: 1,
                     status: 1,
+                    rating: 1,
+                    feedback: 1,
+                    rated: 1,
                     createdAt: 1,
                     updatedAt: 1,
                     patient: {
