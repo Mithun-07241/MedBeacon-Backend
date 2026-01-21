@@ -435,6 +435,8 @@ exports.getDoctorStats = async (req, res) => {
     try {
         const { doctorId } = req.params;
 
+        console.log('📊 Fetching stats for doctorId:', doctorId);
+
         const stats = await Appointment.aggregate([
             { $match: { doctorId, status: "completed" } },
             {
@@ -471,6 +473,8 @@ exports.getDoctorStats = async (req, res) => {
             totalRatings: 0,
             averageRating: 0
         };
+
+        console.log('📊 Stats result:', result);
 
         res.json(result);
     } catch (error) {
