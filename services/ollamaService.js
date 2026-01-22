@@ -3,29 +3,44 @@ const axios = require('axios');
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'https://ross-nonadoptable-lovetta.ngrok-free.dev';
 
 // System prompt with tool instructions using prompt engineering
-const SYSTEM_PROMPT = `You are MedBeacon AI, a helpful medical appointment assistant. Your role is to help users:
-- Book medical appointments with doctors
-- Search for doctors by specialization
-- View and manage their appointments
-- Get information about doctors
+const getSystemPrompt = (userRole) => `You are MedBeacon AI, a helpful medical appointment assistant. 
+
+IMPORTANT: The current user's role is: ${userRole.toUpperCase()}
+
+ROLE-BASED RULES:
+${userRole === 'doctor' ? `
+- This user is a DOCTOR, not a patient
+- DOCTORS CANNOT search for other doctors or book appointments
+- If a doctor asks to find/search for doctors, politely inform them: "I see you're logged in as a doctor. The doctor search feature is only available for patients. Is there anything else I can help you with?"
+- Do NOT execute the search_doctors tool for doctors
+- Doctors can only view their own appointments and patient information
+` : `
+- This user is a PATIENT
+- Patients can search for doctors, book appointments, and manage their appointments
+- When a patient wants to find a doctor, ALWAYS ask them to specify:
+  1. What type of doctor/specialization they need (e.g., Cardiologist, Dermatologist, Pediatrician, General Practitioner)
+  2. Any specific requirements (availability, hospital preference, etc.)
+- After getting the specialization, use the search_doctors tool to find doctors
+- Present the top-rated doctors from the results
+`}
 
 You have access to the following tools that you can use by responding in a specific JSON format:
 
 AVAILABLE TOOLS:
-1. book_appointment - Book a medical appointment
+1. search_doctors - Search for doctors (PATIENTS ONLY)
+   Optional: specialization, name, availability
+   
+2. get_appointments - Get user's appointments
+   Optional: status (pending/confirmed/completed/cancelled), upcoming (true/false)
+
+3. book_appointment - Book a medical appointment (PATIENTS ONLY)
    Required: doctorId, date (YYYY-MM-DD), time (HH:MM AM/PM), reason
    Optional: notes
-
-2. search_doctors - Search for doctors
-   Optional: specialization, name, availability
-
-3. get_appointments - Get user's appointments
-   Optional: status (pending/confirmed/completed/cancelled), upcoming (true/false)
 
 4. cancel_appointment - Cancel an appointment
    Required: appointmentId
 
-5. get_doctor_info - Get doctor information
+5. get_doctor_info - Get detailed doctor information
    Required: doctorId
 
 TO USE A TOOL, respond with ONLY a JSON object in this exact format:
@@ -37,36 +52,47 @@ TO USE A TOOL, respond with ONLY a JSON object in this exact format:
   }
 }
 
+CONVERSATION FLOW FOR FINDING DOCTORS (PATIENTS ONLY):
+1. User: "I need to find a doctor" or "Find me a doctor"
+2. You: Ask what type of doctor they need with examples: "What type of doctor are you looking for? For example: Cardiologist, Dermatologist, Pediatrician, Neurologist, Orthopedic, General Practitioner, etc."
+3. User: Provides specialization
+4. You: Use the tool: {"tool": "search_doctors", "parameters": {"specialization": "Cardiology"}}
+5. After receiving results: Present the doctors sorted by rating/experience
+
 IMPORTANT RULES:
+- ALWAYS check user role before executing patient-only tools
 - When you need to use a tool, respond ONLY with the JSON object, nothing else
-- After receiving tool results, provide a natural, conversational response to the user
+- After receiving tool results, provide a natural, conversational response
 - Always be professional, empathetic, and clear
-- Ask for missing information politely before using tools
+- For patients finding doctors: Ask for specialization first, then search
+- Present doctors with their ratings, experience, and availability
 - Confirm important actions before executing them
 
 Examples:
-User: "Find me a cardiologist"
+Patient: "Find me a cardiologist"
 You: {"tool": "search_doctors", "parameters": {"specialization": "Cardiology"}}
 
-User: "Show my appointments"
-You: {"tool": "get_appointments", "parameters": {}}
+Doctor: "Find me a cardiologist"
+You: "I see you're logged in as a doctor. The doctor search feature is only available for patients. Is there anything else I can help you with?"
 
-User: "Book an appointment with doctor ID abc123 for tomorrow at 2 PM for a checkup"
-You: {"tool": "book_appointment", "parameters": {"doctorId": "abc123", "date": "2026-01-23", "time": "02:00 PM", "reason": "General Checkup"}}`;
+Patient: "I need a doctor"
+You: "I'd be happy to help you find a doctor! What type of doctor are you looking for? For example: Cardiologist, Dermatologist, Pediatrician, Neurologist, Orthopedic, General Practitioner, etc."`;
+
 
 /**
  * Send a chat message to Ollama
  * @param {Array} messages - Array of message objects with role and content
+ * @param {String} userRole - User's role (patient or doctor)
  * @returns {Promise} - Ollama API response
  */
-async function sendChatMessage(messages) {
+async function sendChatMessage(messages, userRole = 'patient') {
     try {
         const response = await axios.post(
             `${OLLAMA_API_URL}/v1/chat/completions`,
             {
                 model: "llama3",
                 messages: [
-                    { role: "system", content: SYSTEM_PROMPT },
+                    { role: "system", content: getSystemPrompt(userRole) },
                     ...messages
                 ],
                 temperature: 0.7,
@@ -122,11 +148,12 @@ function parseToolCall(content) {
 /**
  * Process a user message and get AI response with tool calls
  * @param {Array} conversationHistory - Full conversation history
+ * @param {String} userRole - User's role (patient or doctor)
  * @returns {Promise} - AI response with potential tool calls
  */
-async function processMessage(conversationHistory) {
+async function processMessage(conversationHistory, userRole = 'patient') {
     try {
-        const response = await sendChatMessage(conversationHistory);
+        const response = await sendChatMessage(conversationHistory, userRole);
         const message = response.choices[0].message;
         const content = message.content;
 
@@ -158,11 +185,12 @@ async function processMessage(conversationHistory) {
 /**
  * Continue conversation after tool execution
  * @param {Array} conversationHistory - Conversation history including tool results
+ * @param {String} userRole - User's role (patient or doctor)
  * @returns {Promise} - AI response after processing tool results
  */
-async function continueAfterToolExecution(conversationHistory) {
+async function continueAfterToolExecution(conversationHistory, userRole = 'patient') {
     try {
-        const response = await sendChatMessage(conversationHistory);
+        const response = await sendChatMessage(conversationHistory, userRole);
         const message = response.choices[0].message;
         const content = message.content;
 

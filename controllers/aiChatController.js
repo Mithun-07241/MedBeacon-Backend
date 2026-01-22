@@ -105,7 +105,7 @@ async function searchDoctors(args) {
 
     // Find doctors
     let doctors = await DoctorDetail.find(query)
-        .limit(10)
+        .limit(20)
         .select('userId firstName lastName specialization experience availability profilePicUrl hospital');
 
     // If name is provided, filter by name
@@ -117,10 +117,33 @@ async function searchDoctors(args) {
         );
     }
 
-    // Get user details for each doctor
+    // Get user details and ratings for each doctor
     const doctorsWithDetails = await Promise.all(
         doctors.map(async (doc) => {
             const user = await User.findOne({ id: doc.userId });
+
+            // Get doctor's rating stats
+            const stats = await Appointment.aggregate([
+                { $match: { doctorId: doc.userId, status: 'completed' } },
+                {
+                    $group: {
+                        _id: null,
+                        completedCount: { $sum: 1 },
+                        totalRatings: {
+                            $sum: { $cond: [{ $eq: ['$rated', true] }, 1, 0] }
+                        },
+                        sumRatings: {
+                            $sum: { $cond: [{ $eq: ['$rated', true] }, '$rating', 0] }
+                        }
+                    }
+                }
+            ]);
+
+            const doctorStats = stats[0] || { completedCount: 0, totalRatings: 0, sumRatings: 0 };
+            const averageRating = doctorStats.totalRatings > 0
+                ? (doctorStats.sumRatings / doctorStats.totalRatings)
+                : 0;
+
             return {
                 id: doc.userId,
                 name: doc.firstName && doc.lastName
@@ -130,12 +153,25 @@ async function searchDoctors(args) {
                 experience: doc.experience || 'N/A',
                 availability: doc.availability || 'available',
                 hospital: doc.hospital || doc.hospitalAffiliation || 'N/A',
-                profilePicUrl: doc.profilePicUrl || null
+                profilePicUrl: doc.profilePicUrl || null,
+                rating: parseFloat(averageRating.toFixed(1)),
+                totalRatings: doctorStats.totalRatings,
+                patientsServed: doctorStats.completedCount
             };
         })
     );
 
-    if (doctorsWithDetails.length === 0) {
+    // Sort by rating (highest first), then by patients served
+    const sortedDoctors = doctorsWithDetails
+        .sort((a, b) => {
+            if (b.rating !== a.rating) {
+                return b.rating - a.rating;
+            }
+            return b.patientsServed - a.patientsServed;
+        })
+        .slice(0, 10);
+
+    if (sortedDoctors.length === 0) {
         return {
             success: false,
             message: 'No doctors found matching your criteria. Try a different specialization or remove filters.',
@@ -145,8 +181,8 @@ async function searchDoctors(args) {
 
     return {
         success: true,
-        message: `Found ${doctorsWithDetails.length} doctor(s)`,
-        doctors: doctorsWithDetails
+        message: `Found ${sortedDoctors.length} top-rated doctor(s)`,
+        doctors: sortedDoctors
     };
 }
 
@@ -353,8 +389,9 @@ exports.sendMessage = async (req, res) => {
             { role: 'user', content: message }
         ];
 
-        // Get AI response
-        let aiResponse = await ollamaService.processMessage(updatedHistory);
+        // Get AI response with user role
+        const userRole = req.user.role || 'patient';
+        let aiResponse = await ollamaService.processMessage(updatedHistory, userRole);
 
         // If AI wants to call tools, execute them
         if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
@@ -380,7 +417,7 @@ exports.sendMessage = async (req, res) => {
             });
 
             // Get final response from AI after tool execution
-            aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory);
+            aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory, userRole);
 
             // Add final assistant response to history
             updatedHistory.push({
