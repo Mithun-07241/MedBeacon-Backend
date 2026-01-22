@@ -383,15 +383,19 @@ exports.sendMessage = async (req, res) => {
             return res.status(400).json({ error: 'Message is required' });
         }
 
+        // Load database context for AI
+        const { loadDatabaseContext } = require('../services/dbContextLoader');
+        const dbContext = await loadDatabaseContext();
+
         // Add user message to conversation history
         const updatedHistory = [
             ...conversationHistory,
             { role: 'user', content: message }
         ];
 
-        // Get AI response with user role
+        // Get AI response with user role and database context
         const userRole = req.user.role || 'patient';
-        let aiResponse = await ollamaService.processMessage(updatedHistory, userRole);
+        let aiResponse = await ollamaService.processMessage(updatedHistory, userRole, dbContext);
 
         // If AI wants to call tools, execute them
         if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
@@ -413,11 +417,25 @@ exports.sendMessage = async (req, res) => {
 
             updatedHistory.push({
                 role: 'user',
-                content: `[TOOL RESULTS]\n${toolResultsMessage}\n\nPlease provide a natural, conversational response to the user based on these results. Do not use JSON format.`
+                content: `[SYSTEM: TOOL EXECUTION RESULTS - READ CAREFULLY]
+
+${toolResultsMessage}
+
+CRITICAL INSTRUCTIONS:
+1. The data above is the COMPLETE and ONLY information available
+2. You MUST present ONLY the information shown in the results above
+3. DO NOT invent, make up, or hallucinate ANY doctor names, IDs, or details
+4. If the results show "doctors: []", say "No doctors found"
+5. If the results show specific doctors, list ONLY those doctors with their EXACT names and details
+6. DO NOT add example doctors or placeholder data
+7. Use the EXACT names, ratings, and information from the results
+8. DO NOT use JSON format in your response - provide a natural conversation
+
+Now provide a helpful, natural response to the user based ONLY on the actual data above.`
             });
 
             // Get final response from AI after tool execution
-            aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory, userRole);
+            aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory, userRole, dbContext);
 
             // Add final assistant response to history
             updatedHistory.push({
