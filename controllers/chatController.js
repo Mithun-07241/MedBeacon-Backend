@@ -45,8 +45,8 @@ exports.sendMessage = async (req, res) => {
         // Determine recipient
         const recipientId = req.user.role === "doctor" ? patientId : doctorId;
 
-        // Check if recipient is online
-        const isOnline = userSockets.has(recipientId);
+        // Check if recipient is online (only if socket server is initialized)
+        const isOnline = userSockets ? userSockets.has(recipientId) : false;
 
         if (!isOnline) {
             // Recipient is offline, send FCM push notification
@@ -87,10 +87,14 @@ exports.getChats = async (req, res) => {
         const userId = req.user.id;
         const role = req.user.role;
 
+        console.log('📋 Getting chats for user:', userId, 'role:', role);
+
         // We can use the Conversation model for this! 
         // storage.ts used complex aggregation on Messages, but we have Conversation model now maintained by sendMessage.
 
         const match = role === "doctor" ? { doctorId: userId } : { patientId: userId };
+
+        console.log('📋 Match query:', match);
 
         // We need to return specific format including unreadCount
         // The conversation model has `unread: { doctor: X, patient: Y }`
@@ -165,19 +169,24 @@ exports.getChats = async (req, res) => {
 
         const conversations = await Conversation.find(match).sort({ updatedAt: -1 });
 
+        console.log('📋 Found conversations:', conversations.length);
+
         const formatted = conversations.map(c => ({
             doctorId: c.doctorId,
             patientId: c.patientId,
             lastMessage: c.lastMessage,
             timestamp: c.updatedAt,
-            unreadCount: role === "doctor" ? c.unread.doctor : c.unread.patient
+            unreadCount: role === "doctor" ? (c.unread?.doctor || 0) : (c.unread?.patient || 0)
         }));
+
+        console.log('📋 Formatted conversations:', formatted.length);
 
         res.json(formatted);
 
     } catch (error) {
         console.error("Get Chats Error:", error);
-        res.status(500).json({ error: "Failed to load chats" });
+        console.error("Error stack:", error.stack);
+        res.status(500).json({ error: "Failed to load chats", details: error.message });
     }
 };
 
