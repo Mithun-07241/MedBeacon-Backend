@@ -2,151 +2,64 @@ const axios = require('axios');
 
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'https://ross-nonadoptable-lovetta.ngrok-free.dev';
 
-// Define available tools for the AI agent
-const TOOLS = [
-    {
-        type: "function",
-        function: {
-            name: "book_appointment",
-            description: "Book a medical appointment with a doctor. Use this when the user wants to schedule an appointment.",
-            parameters: {
-                type: "object",
-                properties: {
-                    doctorId: {
-                        type: "string",
-                        description: "The unique ID of the doctor"
-                    },
-                    date: {
-                        type: "string",
-                        description: "The appointment date in YYYY-MM-DD format"
-                    },
-                    time: {
-                        type: "string",
-                        description: "The appointment time in HH:MM AM/PM format (e.g., 09:00 AM, 02:30 PM)"
-                    },
-                    reason: {
-                        type: "string",
-                        description: "The reason for the visit (e.g., General Consultation, Follow-up, Routine Checkup)"
-                    },
-                    notes: {
-                        type: "string",
-                        description: "Additional notes or symptoms (optional)"
-                    }
-                },
-                required: ["doctorId", "date", "time", "reason"]
-            }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "search_doctors",
-            description: "Search for doctors by specialization, name, or availability. Use this when the user wants to find a doctor.",
-            parameters: {
-                type: "object",
-                properties: {
-                    specialization: {
-                        type: "string",
-                        description: "The medical specialization (e.g., Cardiology, Dermatology, Pediatrics)"
-                    },
-                    name: {
-                        type: "string",
-                        description: "The doctor's name (partial match supported)"
-                    },
-                    availability: {
-                        type: "string",
-                        enum: ["available", "busy", "unavailable"],
-                        description: "Filter by availability status"
-                    }
-                },
-                required: []
-            }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_appointments",
-            description: "Get the user's appointments. Use this when the user wants to see their scheduled appointments.",
-            parameters: {
-                type: "object",
-                properties: {
-                    status: {
-                        type: "string",
-                        enum: ["pending", "confirmed", "completed", "cancelled"],
-                        description: "Filter appointments by status"
-                    },
-                    upcoming: {
-                        type: "boolean",
-                        description: "If true, only show upcoming appointments"
-                    }
-                },
-                required: []
-            }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "cancel_appointment",
-            description: "Cancel an existing appointment. Use this when the user wants to cancel their appointment.",
-            parameters: {
-                type: "object",
-                properties: {
-                    appointmentId: {
-                        type: "string",
-                        description: "The unique ID of the appointment to cancel"
-                    }
-                },
-                required: ["appointmentId"]
-            }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_doctor_info",
-            description: "Get detailed information about a specific doctor including their specialization, experience, and availability.",
-            parameters: {
-                type: "object",
-                properties: {
-                    doctorId: {
-                        type: "string",
-                        description: "The unique ID of the doctor"
-                    }
-                },
-                required: ["doctorId"]
-            }
-        }
-    }
-];
-
-// System prompt for the AI agent
+// System prompt with tool instructions using prompt engineering
 const SYSTEM_PROMPT = `You are MedBeacon AI, a helpful medical appointment assistant. Your role is to help users:
 - Book medical appointments with doctors
 - Search for doctors by specialization
 - View and manage their appointments
 - Get information about doctors
 
-Always be professional, empathetic, and clear in your communication. When booking appointments:
-1. Ask for all required information if not provided (doctor, date, time, reason)
-2. Confirm the details before booking
-3. Provide helpful suggestions for available time slots
+You have access to the following tools that you can use by responding in a specific JSON format:
 
-When searching for doctors:
-1. Ask about the user's specific needs or symptoms
-2. Suggest appropriate specializations
-3. Present doctor options clearly
+AVAILABLE TOOLS:
+1. book_appointment - Book a medical appointment
+   Required: doctorId, date (YYYY-MM-DD), time (HH:MM AM/PM), reason
+   Optional: notes
 
-Be conversational and friendly while maintaining professionalism. If you need information to complete a task, ask the user politely.`;
+2. search_doctors - Search for doctors
+   Optional: specialization, name, availability
+
+3. get_appointments - Get user's appointments
+   Optional: status (pending/confirmed/completed/cancelled), upcoming (true/false)
+
+4. cancel_appointment - Cancel an appointment
+   Required: appointmentId
+
+5. get_doctor_info - Get doctor information
+   Required: doctorId
+
+TO USE A TOOL, respond with ONLY a JSON object in this exact format:
+{
+  "tool": "tool_name",
+  "parameters": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+
+IMPORTANT RULES:
+- When you need to use a tool, respond ONLY with the JSON object, nothing else
+- After receiving tool results, provide a natural, conversational response to the user
+- Always be professional, empathetic, and clear
+- Ask for missing information politely before using tools
+- Confirm important actions before executing them
+
+Examples:
+User: "Find me a cardiologist"
+You: {"tool": "search_doctors", "parameters": {"specialization": "Cardiology"}}
+
+User: "Show my appointments"
+You: {"tool": "get_appointments", "parameters": {}}
+
+User: "Book an appointment with doctor ID abc123 for tomorrow at 2 PM for a checkup"
+You: {"tool": "book_appointment", "parameters": {"doctorId": "abc123", "date": "2026-01-23", "time": "02:00 PM", "reason": "General Checkup"}}`;
 
 /**
- * Send a chat message to Ollama with function calling support
+ * Send a chat message to Ollama
  * @param {Array} messages - Array of message objects with role and content
- * @param {Boolean} stream - Whether to stream the response
  * @returns {Promise} - Ollama API response
  */
-async function sendChatMessage(messages, stream = false) {
+async function sendChatMessage(messages) {
     try {
         const response = await axios.post(
             `${OLLAMA_API_URL}/v1/chat/completions`,
@@ -156,16 +69,14 @@ async function sendChatMessage(messages, stream = false) {
                     { role: "system", content: SYSTEM_PROMPT },
                     ...messages
                 ],
-                tools: TOOLS,
                 temperature: 0.7,
-                stream: stream
+                stream: false
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'ngrok-skip-browser-warning': 'true'
                 },
-                responseType: stream ? 'stream' : 'json',
                 timeout: 60000 // 60 second timeout
             }
         );
@@ -178,20 +89,65 @@ async function sendChatMessage(messages, stream = false) {
 }
 
 /**
+ * Parse AI response to detect tool calls
+ * @param {String} content - AI response content
+ * @returns {Object} - Parsed tool call or null
+ */
+function parseToolCall(content) {
+    try {
+        // Remove markdown code blocks if present
+        let cleanContent = content.trim();
+        cleanContent = cleanContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+
+        // Try to find JSON in the response
+        const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // Check if it's a tool call
+        if (parsed.tool && parsed.parameters !== undefined) {
+            return {
+                name: parsed.tool,
+                arguments: parsed.parameters
+            };
+        }
+
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+/**
  * Process a user message and get AI response with tool calls
  * @param {Array} conversationHistory - Full conversation history
  * @returns {Promise} - AI response with potential tool calls
  */
 async function processMessage(conversationHistory) {
     try {
-        const response = await sendChatMessage(conversationHistory, false);
-
-        // Check if the response includes tool calls
+        const response = await sendChatMessage(conversationHistory);
         const message = response.choices[0].message;
+        const content = message.content;
+
+        // Try to parse tool call from response
+        const toolCall = parseToolCall(content);
+
+        if (toolCall) {
+            return {
+                content: '',
+                toolCalls: [{
+                    id: `call_${Date.now()}`,
+                    type: 'function',
+                    function: toolCall
+                }],
+                finishReason: 'tool_calls'
+            };
+        }
 
         return {
-            content: message.content,
-            toolCalls: message.tool_calls || null,
+            content: content,
+            toolCalls: null,
             finishReason: response.choices[0].finish_reason
         };
     } catch (error) {
@@ -206,12 +162,28 @@ async function processMessage(conversationHistory) {
  */
 async function continueAfterToolExecution(conversationHistory) {
     try {
-        const response = await sendChatMessage(conversationHistory, false);
+        const response = await sendChatMessage(conversationHistory);
         const message = response.choices[0].message;
+        const content = message.content;
+
+        // Check if AI wants to call another tool
+        const toolCall = parseToolCall(content);
+
+        if (toolCall) {
+            return {
+                content: '',
+                toolCalls: [{
+                    id: `call_${Date.now()}`,
+                    type: 'function',
+                    function: toolCall
+                }],
+                finishReason: 'tool_calls'
+            };
+        }
 
         return {
-            content: message.content,
-            toolCalls: message.tool_calls || null,
+            content: content,
+            toolCalls: null,
             finishReason: response.choices[0].finish_reason
         };
     } catch (error) {
@@ -221,6 +193,5 @@ async function continueAfterToolExecution(conversationHistory) {
 
 module.exports = {
     processMessage,
-    continueAfterToolExecution,
-    TOOLS
+    continueAfterToolExecution
 };
