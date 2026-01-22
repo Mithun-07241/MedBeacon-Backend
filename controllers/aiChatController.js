@@ -363,23 +363,21 @@ exports.sendMessage = async (req, res) => {
                 aiResponse.toolCalls.map(async (toolCall) => {
                     const result = await executeToolCall(toolCall, userId);
                     return {
-                        tool_call_id: toolCall.id,
-                        role: 'tool',
                         name: toolCall.function.name,
-                        content: JSON.stringify(result)
+                        result: result
                     };
                 })
             );
 
-            // Add assistant message with tool calls to history
-            updatedHistory.push({
-                role: 'assistant',
-                content: aiResponse.content || '',
-                tool_calls: aiResponse.toolCalls
-            });
+            // Add tool results as a user message for the AI to process
+            const toolResultsMessage = toolResults.map(tr =>
+                `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+            ).join('\n\n');
 
-            // Add tool results to history
-            updatedHistory.push(...toolResults);
+            updatedHistory.push({
+                role: 'user',
+                content: `[TOOL RESULTS]\n${toolResultsMessage}\n\nPlease provide a natural, conversational response to the user based on these results. Do not use JSON format.`
+            });
 
             // Get final response from AI after tool execution
             aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory);
