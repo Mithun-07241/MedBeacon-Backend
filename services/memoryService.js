@@ -1,14 +1,14 @@
-const Conversation = require('../models/Conversation');
+const AiConversation = require('../models/AiConversation');
 
 /**
  * Get or create conversation for a user
  */
 async function getConversation(userId) {
     try {
-        let conversation = await Conversation.findOne({ userId }).sort({ lastActive: -1 });
+        let conversation = await AiConversation.findOne({ userId }).sort({ lastActive: -1 });
 
         if (!conversation) {
-            conversation = await Conversation.create({
+            conversation = await AiConversation.create({
                 userId,
                 messages: [],
                 metadata: {
@@ -84,7 +84,7 @@ async function getConversationHistory(userId, limit = 20) {
  */
 async function clearConversation(userId) {
     try {
-        await Conversation.findOneAndUpdate(
+        await AiConversation.findOneAndUpdate(
             { userId },
             {
                 messages: [],

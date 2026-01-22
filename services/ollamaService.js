@@ -7,7 +7,7 @@ const getSystemPrompt = (userRole, dbContext = {}) => {
     const { doctors = [], specializations = [] } = dbContext;
 
     const doctorsList = doctors.length > 0
-        ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
+        ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - ID: ${d.id} - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
         : 'Loading doctor information...';
 
     const specializationsList = specializations.length > 0

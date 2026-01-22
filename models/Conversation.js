@@ -1,55 +1,40 @@
 const mongoose = require('mongoose');
 
+// Doctor-Patient Conversation Schema
 const conversationSchema = new mongoose.Schema({
-    userId: {
+    doctorId: {
         type: String,
         required: true,
         index: true
     },
-    messages: [{
-        role: {
-            type: String,
-            enum: ['user', 'assistant', 'system'],
-            required: true
-        },
-        content: {
-            type: String,
-            required: true
-        },
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
-        toolsExecuted: [{
-            type: String
-        }]
-    }],
-    lastActive: {
-        type: Date,
-        default: Date.now
+    patientId: {
+        type: String,
+        required: true,
+        index: true
     },
-    metadata: {
-        totalMessages: {
+    lastMessage: {
+        type: String,
+        default: ''
+    },
+    lastSender: {
+        type: String
+    },
+    unread: {
+        doctor: {
             type: Number,
             default: 0
         },
-        totalToolCalls: {
+        patient: {
             type: Number,
             default: 0
         }
     }
 }, {
-    timestamps: true
+    timestamps: true // Adds createdAt and updatedAt
 });
 
-// Index for efficient queries
-conversationSchema.index({ userId: 1, lastActive: -1 });
-
-// Update lastActive on save
-conversationSchema.pre('save', function (next) {
-    this.lastActive = new Date();
-    this.metadata.totalMessages = this.messages.length;
-    next();
-});
+// Compound index for efficient queries
+conversationSchema.index({ doctorId: 1, patientId: 1 }, { unique: true });
+conversationSchema.index({ updatedAt: -1 });
 
 module.exports = mongoose.model('Conversation', conversationSchema);

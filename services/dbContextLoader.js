@@ -35,6 +35,7 @@ async function loadDatabaseContext() {
                     : 'New';
 
                 return {
+                    id: doc.userId,
                     name: doc.firstName && doc.lastName
                         ? `Dr. ${doc.firstName} ${doc.lastName}`
                         : 'Doctor',
