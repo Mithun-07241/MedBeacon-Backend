@@ -2,6 +2,146 @@ const ollamaService = require('../services/ollamaService');
 const Appointment = require('../models/Appointment');
 const DoctorDetail = require('../models/DoctorDetail');
 const User = require('../models/User');
+const AiChatSession = require('../models/AiChatSession');
+
+/**
+ * Get all chat sessions for a user
+ */
+exports.getSessions = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const sessions = await AiChatSession.find({ userId })
+            .sort({ lastMessageAt: -1 })
+            .select('sessionId title lastMessageAt createdAt')
+            .limit(50);
+
+        res.json(sessions);
+    } catch (error) {
+        console.error('Get Sessions Error:', error);
+        res.status(500).json({ error: 'Failed to fetch chat sessions' });
+    }
+};
+
+/**
+ * Create a new chat session
+ */
+exports.createSession = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const session = await AiChatSession.create({
+            userId,
+            title: 'New Chat',
+            messages: []
+        });
+
+        res.json({
+            sessionId: session.sessionId,
+            title: session.title,
+            createdAt: session.createdAt
+        });
+    } catch (error) {
+        console.error('Create Session Error:', error);
+        res.status(500).json({ error: 'Failed to create chat session' });
+    }
+};
+
+/**
+ * Get messages from a specific session
+ */
+exports.getSessionMessages = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { sessionId } = req.params;
+
+        const session = await AiChatSession.findOne({ sessionId, userId });
+
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        res.json({
+            sessionId: session.sessionId,
+            title: session.title,
+            messages: session.messages,
+            createdAt: session.createdAt,
+            lastMessageAt: session.lastMessageAt
+        });
+    } catch (error) {
+        console.error('Get Session Messages Error:', error);
+        res.status(500).json({ error: 'Failed to fetch session messages' });
+    }
+};
+
+/**
+ * Rename a chat session
+ */
+exports.renameSession = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { sessionId } = req.params;
+        const { title } = req.body;
+
+        if (!title || title.trim().length === 0) {
+            return res.status(400).json({ error: 'Title is required' });
+        }
+
+        const session = await AiChatSession.findOneAndUpdate(
+            { sessionId, userId },
+            { title: title.trim() },
+            { new: true }
+        );
+
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        res.json({ sessionId: session.sessionId, title: session.title });
+    } catch (error) {
+        console.error('Rename Session Error:', error);
+        res.status(500).json({ error: 'Failed to rename session' });
+    }
+};
+
+/**
+ * Delete a chat session
+ */
+exports.deleteSession = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { sessionId } = req.params;
+
+        const session = await AiChatSession.findOneAndDelete({ sessionId, userId });
+
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        res.json({ message: 'Session deleted successfully' });
+    } catch (error) {
+        console.error('Delete Session Error:', error);
+        res.status(500).json({ error: 'Failed to delete session' });
+    }
+};
+
+/**
+ * Generate session title from first message
+ */
+function generateSessionTitle(firstMessage) {
+    // Take first 50 characters of the message
+    let title = firstMessage.trim().substring(0, 50);
+
+    // If truncated, add ellipsis
+    if (firstMessage.length > 50) {
+        title += '...';
+    }
+
+    // Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    return title || 'New Chat';
+}
 
 /**
  * Execute tool calls from the AI
@@ -59,6 +199,9 @@ async function bookAppointment(args, userId) {
         };
     }
 
+    // Get user for username fallback
+    const user = await User.findOne({ id: doctorId });
+
     // Create appointment
     const appointment = await Appointment.create({
         patientId: userId,
@@ -77,7 +220,7 @@ async function bookAppointment(args, userId) {
             id: appointment._id,
             doctorName: doctor.firstName && doctor.lastName
                 ? `Dr. ${doctor.firstName} ${doctor.lastName}`
-                : 'Doctor',
+                : user?.username || 'Doctor',
             specialization: doctor.specialization,
             date,
             time,
@@ -372,40 +515,48 @@ async function getDoctorInfo(args) {
 }
 
 /**
- * Main chat endpoint
+ * Main chat endpoint with session support
  */
 exports.sendMessage = async (req, res) => {
     try {
-        const { message, conversationHistory = [] } = req.body;
+        const { message, sessionId } = req.body;
         const userId = req.user.id;
 
         if (!message || typeof message !== 'string') {
             return res.status(400).json({ error: 'Message is required' });
         }
 
-        // Load memory service
-        const memoryService = require('../services/memoryService');
-
-        // Get previous conversation history from database (if conversationHistory is empty)
-        let fullHistory = conversationHistory;
-        if (conversationHistory.length === 0) {
-            console.log('📚 Loading conversation history from memory for user:', userId);
-            fullHistory = await memoryService.getConversationHistory(userId, 20);
+        // Get or create session
+        let session;
+        if (sessionId) {
+            session = await AiChatSession.findOne({ sessionId, userId });
+            if (!session) {
+                return res.status(404).json({ error: 'Session not found' });
+            }
+        } else {
+            // Create new session
+            session = await AiChatSession.create({
+                userId,
+                title: generateSessionTitle(message),
+                messages: []
+            });
         }
 
         // Load database context for AI
         const { loadDatabaseContext } = require('../services/dbContextLoader');
         const dbContext = await loadDatabaseContext();
 
-        // Add user message to conversation history
-        const updatedHistory = [
-            ...fullHistory,
-            { role: 'user', content: message }
-        ];
+        // Build conversation history from session (last 20 messages)
+        const conversationHistory = session.messages
+            .slice(-20)
+            .map(msg => ({ role: msg.role, content: msg.content }));
 
-        // Get AI response with user role and database context
+        // Add current user message
+        conversationHistory.push({ role: 'user', content: message });
+
+        // Get AI response
         const userRole = req.user.role || 'patient';
-        let aiResponse = await ollamaService.processMessage(updatedHistory, userRole, dbContext);
+        let aiResponse = await ollamaService.processMessage(conversationHistory, userRole, dbContext);
 
         // If AI wants to call tools, execute them
         if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
@@ -420,12 +571,12 @@ exports.sendMessage = async (req, res) => {
                 })
             );
 
-            // Add tool results as a user message for the AI to process
+            // Add tool results to conversation
             const toolResultsMessage = toolResults.map(tr =>
                 `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`
             ).join('\n\n');
 
-            updatedHistory.push({
+            conversationHistory.push({
                 role: 'user',
                 content: `[SYSTEM: TOOL EXECUTION RESULTS - READ CAREFULLY]
 
@@ -445,53 +596,35 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
             });
 
             // Get final response from AI after tool execution
-            aiResponse = await ollamaService.continueAfterToolExecution(updatedHistory, userRole, dbContext);
+            aiResponse = await ollamaService.continueAfterToolExecution(conversationHistory, userRole, dbContext);
 
-            // Add final assistant response to history
-            updatedHistory.push({
+            // Save messages to session
+            session.messages.push({ role: 'user', content: message, timestamp: new Date() });
+            session.messages.push({
                 role: 'assistant',
-                content: aiResponse.content
+                content: aiResponse.content,
+                timestamp: new Date(),
+                toolsExecuted: toolResults.map(tr => tr.name)
             });
 
-            // Save to memory
-            await memoryService.addMessage(userId, 'user', message);
-            await memoryService.addMessage(userId, 'assistant', aiResponse.content, toolResults.map(tr => tr.name));
+            await session.save();
 
             return res.json({
                 message: aiResponse.content,
-                conversationHistory: updatedHistory,
+                sessionId: session.sessionId,
                 toolsExecuted: toolResults.map(tr => tr.name)
             });
         }
 
-        // No tool calls, just return the response
-        updatedHistory.push({
-            role: 'assistant',
-            content: aiResponse.content
-        });
+        // No tool calls, save messages and return response
+        session.messages.push({ role: 'user', content: message, timestamp: new Date() });
+        session.messages.push({ role: 'assistant', content: aiResponse.content, timestamp: new Date() });
 
-        // Detect if AI is falsely claiming to have booked/scheduled
-        const lowerContent = aiResponse.content.toLowerCase();
-        const bookingClaims = ['i\'ve booked', 'i have booked', 'i\'ve scheduled', 'i have scheduled', 'appointment is booked', 'appointment has been booked'];
-        const isFalseClaim = bookingClaims.some(claim => lowerContent.includes(claim));
-
-        if (isFalseClaim) {
-            console.warn('⚠️ AI made false booking claim without using tool!');
-            console.warn('Response:', aiResponse.content);
-
-            // Override with correction
-            aiResponse.content = "I apologize, but I need more information to book your appointment. Please provide:\n1. Doctor's name or ID\n2. Preferred date (YYYY-MM-DD)\n3. Preferred time (HH:MM AM/PM)\n4. Reason for visit\n\nOnce I have these details, I'll book the appointment for you.";
-
-            updatedHistory[updatedHistory.length - 1].content = aiResponse.content;
-        }
-
-        // Save to memory
-        await memoryService.addMessage(userId, 'user', message);
-        await memoryService.addMessage(userId, 'assistant', aiResponse.content);
+        await session.save();
 
         res.json({
             message: aiResponse.content,
-            conversationHistory: updatedHistory
+            sessionId: session.sessionId
         });
 
     } catch (error) {
@@ -502,3 +635,5 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
         });
     }
 };
+
+module.exports = exports;
