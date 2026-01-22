@@ -3,6 +3,7 @@ const Conversation = require("../models/Conversation");
 const User = require("../models/User");
 const { userSockets } = require("../socketServer");
 const { sendMessageNotification } = require("../services/pushNotificationService");
+const { isValidMessage, isValidUserId, sanitizeString } = require('../utils/validation');
 
 exports.getHistory = async (req, res) => {
     try {
@@ -17,13 +18,30 @@ exports.getHistory = async (req, res) => {
 exports.sendMessage = async (req, res) => {
     try {
         const { doctorId, patientId, text } = req.body;
-        if (!doctorId || !patientId || !text) return res.status(400).json({ error: "Missing fields" });
+
+        // Validate required fields
+        if (!doctorId || !patientId || !text) {
+            return res.status(400).json({ error: "Missing fields" });
+        }
+
+        // Validate IDs
+        if (!isValidUserId(doctorId) || !isValidUserId(patientId)) {
+            return res.status(400).json({ error: "Invalid user ID format" });
+        }
+
+        // Validate message
+        if (!isValidMessage(text)) {
+            return res.status(400).json({ error: "Message must be between 1 and 5000 characters" });
+        }
+
+        // Sanitize message
+        const sanitizedText = sanitizeString(text);
 
         const message = await Message.create({
             doctorId,
             patientId,
             sender: req.user.id,
-            text
+            text: sanitizedText
         });
 
         // Validating Conversation Upsert
