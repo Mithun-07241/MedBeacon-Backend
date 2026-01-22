@@ -383,13 +383,23 @@ exports.sendMessage = async (req, res) => {
             return res.status(400).json({ error: 'Message is required' });
         }
 
+        // Load memory service
+        const memoryService = require('../services/memoryService');
+
+        // Get previous conversation history from database (if conversationHistory is empty)
+        let fullHistory = conversationHistory;
+        if (conversationHistory.length === 0) {
+            console.log('📚 Loading conversation history from memory for user:', userId);
+            fullHistory = await memoryService.getConversationHistory(userId, 20);
+        }
+
         // Load database context for AI
         const { loadDatabaseContext } = require('../services/dbContextLoader');
         const dbContext = await loadDatabaseContext();
 
         // Add user message to conversation history
         const updatedHistory = [
-            ...conversationHistory,
+            ...fullHistory,
             { role: 'user', content: message }
         ];
 
@@ -443,6 +453,10 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
                 content: aiResponse.content
             });
 
+            // Save to memory
+            await memoryService.addMessage(userId, 'user', message);
+            await memoryService.addMessage(userId, 'assistant', aiResponse.content, toolResults.map(tr => tr.name));
+
             return res.json({
                 message: aiResponse.content,
                 conversationHistory: updatedHistory,
@@ -455,6 +469,25 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
             role: 'assistant',
             content: aiResponse.content
         });
+
+        // Detect if AI is falsely claiming to have booked/scheduled
+        const lowerContent = aiResponse.content.toLowerCase();
+        const bookingClaims = ['i\'ve booked', 'i have booked', 'i\'ve scheduled', 'i have scheduled', 'appointment is booked', 'appointment has been booked'];
+        const isFalseClaim = bookingClaims.some(claim => lowerContent.includes(claim));
+
+        if (isFalseClaim) {
+            console.warn('⚠️ AI made false booking claim without using tool!');
+            console.warn('Response:', aiResponse.content);
+
+            // Override with correction
+            aiResponse.content = "I apologize, but I need more information to book your appointment. Please provide:\n1. Doctor's name or ID\n2. Preferred date (YYYY-MM-DD)\n3. Preferred time (HH:MM AM/PM)\n4. Reason for visit\n\nOnce I have these details, I'll book the appointment for you.";
+
+            updatedHistory[updatedHistory.length - 1].content = aiResponse.content;
+        }
+
+        // Save to memory
+        await memoryService.addMessage(userId, 'user', message);
+        await memoryService.addMessage(userId, 'assistant', aiResponse.content);
 
         res.json({
             message: aiResponse.content,
