@@ -1,5 +1,10 @@
 const Appointment = require("../models/Appointment");
 const User = require("../models/User");
+const {
+    validateBookingParams,
+    isValidNumber,
+    sanitizeString
+} = require('../utils/validation');
 
 // Helper to fully populate appointment data
 const populateAppointment = async (query) => {
@@ -304,15 +309,16 @@ exports.createAppointment = async (req, res) => {
         const { doctorId, date, time, reason, notes } = req.body;
 
         if (req.user.role !== "patient") return res.status(403).json({ error: "Only patients can book" });
-        if (!doctorId || !date || !time) return res.status(400).json({ error: "Missing fields" });
+
+        // Validate booking parameters
+        const validation = validateBookingParams({ doctorId, date, time, reason, notes });
+        if (!validation.isValid) {
+            return res.status(400).json({ error: validation.errors.join(', ') });
+        }
 
         const appointment = await Appointment.create({
             patientId: req.user.id,
-            doctorId,
-            date,
-            time,
-            reason: reason || "",
-            notes: notes || "",
+            ...validation.sanitized,
             status: "pending"
         });
 
@@ -388,9 +394,12 @@ exports.submitRating = async (req, res) => {
         }
 
         // Validate rating
-        if (!rating || rating < 1 || rating > 5) {
+        if (!rating || !isValidNumber(rating, 1, 5)) {
             return res.status(400).json({ error: "Rating must be between 1 and 5" });
         }
+
+        // Sanitize feedback
+        const sanitizedFeedback = feedback ? sanitizeString(feedback) : "";
 
         const appointment = await Appointment.findById(id);
         if (!appointment) {

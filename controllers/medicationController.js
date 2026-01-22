@@ -1,4 +1,5 @@
 const Medication = require("../models/Medication");
+const { validateMedication, isValidUserId, sanitizeString } = require('../utils/validation');
 
 exports.getMedications = async (req, res) => {
     try {
@@ -22,10 +23,23 @@ exports.getMedications = async (req, res) => {
 
 exports.createMedication = async (req, res) => {
     try {
+        // Validate medication data
+        const validation = validateMedication(req.body);
+        if (!validation.isValid) {
+            return res.status(400).json({ message: validation.errors.join(', ') });
+        }
+
+        const patientId = req.body.patientId || req.user.id;
+
+        // Validate patient ID
+        if (!isValidUserId(patientId)) {
+            return res.status(400).json({ message: "Invalid patient ID format" });
+        }
+
         const newMedication = new Medication({
-            ...req.body,
-            patientId: req.body.patientId || req.user.id, // Allow setting patientId if doctor creating
-            prescribedBy: req.user.username
+            ...validation.sanitized,
+            patientId,
+            prescribedBy: sanitizeString(req.user.username)
         });
         const savedMedication = await newMedication.save();
         res.status(201).json({ medication: savedMedication });

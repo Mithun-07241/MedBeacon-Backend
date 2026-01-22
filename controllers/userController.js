@@ -1,6 +1,13 @@
 const User = require("../models/User");
 const PatientDetail = require("../models/PatientDetail");
 const DoctorDetail = require("../models/DoctorDetail");
+const {
+    isValidName,
+    isValidPhone,
+    isValidDateOfBirth,
+    sanitizeString,
+    validateProfileUpdate
+} = require('../utils/validation');
 
 exports.completeProfile = async (req, res) => {
     try {

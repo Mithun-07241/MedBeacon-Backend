@@ -1,4 +1,5 @@
 const HealthMetric = require('../models/HealthMetric');
+const { validateHealthMetric, isValidUserId } = require('../utils/validation');
 
 exports.getHealthMetrics = async (req, res) => {
     try {
@@ -21,10 +22,11 @@ exports.getHealthMetrics = async (req, res) => {
 
 exports.createHealthMetric = async (req, res) => {
     try {
-        // Filter out empty strings to prevent CastErrors and remove extra fields
-        const cleanData = Object.fromEntries(
-            Object.entries(req.body).filter(([_, v]) => v !== '' && v !== null && v !== undefined)
-        );
+        // Validate health metric data
+        const validation = validateHealthMetric(req.body);
+        if (!validation.isValid) {
+            return res.status(400).json({ message: validation.errors.join(', ') });
+        }
 
         const patientId = req.body.patientId || req.user?.id;
 
@@ -32,8 +34,13 @@ exports.createHealthMetric = async (req, res) => {
             return res.status(400).json({ message: "Patient ID is required" });
         }
 
+        // Validate patient ID format
+        if (!isValidUserId(patientId)) {
+            return res.status(400).json({ message: "Invalid patient ID format" });
+        }
+
         const newMetric = new HealthMetric({
-            ...cleanData,
+            ...validation.sanitized,
             patientId
         });
         const savedMetric = await newMetric.save();

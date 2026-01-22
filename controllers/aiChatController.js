@@ -3,6 +3,15 @@ const Appointment = require('../models/Appointment');
 const DoctorDetail = require('../models/DoctorDetail');
 const User = require('../models/User');
 const AiChatSession = require('../models/AiChatSession');
+const {
+    isValidSessionId,
+    isValidUserId,
+    isValidSessionTitle,
+    isValidMessage,
+    sanitizeString,
+    validateBookingParams,
+    validateSearchParams
+} = require('../utils/validation');
 
 /**
  * Get all chat sessions for a user
@@ -83,13 +92,21 @@ exports.renameSession = async (req, res) => {
         const { sessionId } = req.params;
         const { title } = req.body;
 
-        if (!title || title.trim().length === 0) {
-            return res.status(400).json({ error: 'Title is required' });
+        // Validate session ID
+        if (!isValidSessionId(sessionId)) {
+            return res.status(400).json({ error: 'Invalid session ID format' });
         }
+
+        // Validate title
+        if (!isValidSessionTitle(title)) {
+            return res.status(400).json({ error: 'Title must be between 1 and 100 characters' });
+        }
+
+        const sanitizedTitle = sanitizeString(title);
 
         const session = await AiChatSession.findOneAndUpdate(
             { sessionId, userId },
-            { title: title.trim() },
+            { title: sanitizedTitle },
             { new: true }
         );
 
@@ -111,6 +128,11 @@ exports.deleteSession = async (req, res) => {
     try {
         const userId = req.user.id;
         const { sessionId } = req.params;
+
+        // Validate session ID
+        if (!isValidSessionId(sessionId)) {
+            return res.status(400).json({ error: 'Invalid session ID format' });
+        }
 
         const session = await AiChatSession.findOneAndDelete({ sessionId, userId });
 
@@ -180,15 +202,16 @@ async function executeToolCall(toolCall, userId) {
  * Book an appointment
  */
 async function bookAppointment(args, userId) {
-    const { doctorId, date, time, reason, notes } = args;
-
-    // Validate required fields
-    if (!doctorId || !date || !time || !reason) {
+    // Validate and sanitize input
+    const validation = validateBookingParams(args);
+    if (!validation.isValid) {
         return {
             success: false,
-            error: 'Missing required fields. Please provide doctor ID, date, time, and reason.'
+            error: validation.errors.join(', ')
         };
     }
+
+    const { doctorId, date, time, reason, notes } = validation.sanitized;
 
     // Verify doctor exists
     const doctor = await DoctorDetail.findOne({ userId: doctorId });
@@ -234,7 +257,17 @@ async function bookAppointment(args, userId) {
  * Search for doctors
  */
 async function searchDoctors(args) {
-    const { specialization, name, availability } = args;
+    // Validate and sanitize input
+    const validation = validateSearchParams(args);
+    if (!validation.isValid) {
+        return {
+            success: false,
+            error: validation.errors.join(', '),
+            doctors: []
+        };
+    }
+
+    const { specialization, name, availability } = validation.sanitized;
 
     let query = {};
 
@@ -522,9 +555,18 @@ exports.sendMessage = async (req, res) => {
         const { message, sessionId } = req.body;
         const userId = req.user.id;
 
-        if (!message || typeof message !== 'string') {
-            return res.status(400).json({ error: 'Message is required' });
+        // Validate message
+        if (!isValidMessage(message)) {
+            return res.status(400).json({ error: 'Message must be between 1 and 5000 characters' });
         }
+
+        // Validate session ID if provided
+        if (sessionId && !isValidSessionId(sessionId)) {
+            return res.status(400).json({ error: 'Invalid session ID format' });
+        }
+
+        // Sanitize message
+        const sanitizedMessage = sanitizeString(message);
 
         // Get or create session
         let session;
@@ -537,7 +579,7 @@ exports.sendMessage = async (req, res) => {
             // Create new session
             session = await AiChatSession.create({
                 userId,
-                title: generateSessionTitle(message),
+                title: generateSessionTitle(sanitizedMessage),
                 messages: []
             });
         }
@@ -551,8 +593,8 @@ exports.sendMessage = async (req, res) => {
             .slice(-20)
             .map(msg => ({ role: msg.role, content: msg.content }));
 
-        // Add current user message
-        conversationHistory.push({ role: 'user', content: message });
+        // Add current user message (sanitized)
+        conversationHistory.push({ role: 'user', content: sanitizedMessage });
 
         // Get AI response
         const userRole = req.user.role || 'patient';
@@ -599,7 +641,7 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
             aiResponse = await ollamaService.continueAfterToolExecution(conversationHistory, userRole, dbContext);
 
             // Save messages to session
-            session.messages.push({ role: 'user', content: message, timestamp: new Date() });
+            session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
             session.messages.push({
                 role: 'assistant',
                 content: aiResponse.content,
@@ -617,7 +659,7 @@ Now provide a helpful, natural response to the user based ONLY on the actual dat
         }
 
         // No tool calls, save messages and return response
-        session.messages.push({ role: 'user', content: message, timestamp: new Date() });
+        session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
         session.messages.push({ role: 'assistant', content: aiResponse.content, timestamp: new Date() });
 
         await session.save();

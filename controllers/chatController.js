@@ -33,9 +33,8 @@ exports.sendMessage = async (req, res) => {
             { doctorId, patientId },
             {
                 $set: {
-                    lastMessage: text,
+                    lastMessage: sanitizedText,
                     lastSender: req.user.id,
-                    // updatedAt handled by timestamps: true
                 },
                 $inc: { [`unread.${unreadFor}`]: 1 }
             },

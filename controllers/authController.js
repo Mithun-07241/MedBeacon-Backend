@@ -2,6 +2,13 @@ const User = require("../models/User");
 const { hashPassword, verifyPassword, signJwt } = require("../utils/helpers");
 const { v4: uuidv4 } = require('uuid');
 const { sendOTP } = require("../utils/mailer");
+const {
+    isValidEmail,
+    isValidPassword,
+    isValidUsername,
+    sanitizeString,
+    validateRegistration
+} = require('../utils/validation');
 
 // ==========================================
 // NEW IMPLEMENTATION
@@ -11,8 +18,33 @@ exports.signup = async (req, res) => {
     try {
         const { username, email, password, role, ...rest } = req.body;
 
+        // Validate required fields
         if (!email || !password || !role) {
             return res.status(400).json({ error: "Email, password, and role are required" });
+        }
+
+        // Validate email format
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: "Invalid email format" });
+        }
+
+        // Validate password strength
+        if (!isValidPassword(password)) {
+            return res.status(400).json({
+                error: "Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number"
+            });
+        }
+
+        // Validate role
+        if (!['patient', 'doctor'].includes(role)) {
+            return res.status(400).json({ error: "Role must be either 'patient' or 'doctor'" });
+        }
+
+        // Validate username if provided
+        if (username && !isValidUsername(username)) {
+            return res.status(400).json({
+                error: "Username must be 3-30 characters, alphanumeric, underscores, or hyphens only"
+            });
         }
 
         // Check existing
@@ -30,11 +62,11 @@ exports.signup = async (req, res) => {
 
         const newUser = await User.create({
             id: userId,
-            username: username || email.split("@")[0],
-            email,
+            username: sanitizeString(username || email.split("@")[0]),
+            email: email.trim().toLowerCase(),
             password: passwordHash,
             role,
-            verificationStatus: "pending", // Force pending until OTP verified
+            verificationStatus: "pending",
             otp,
             otpExpires,
             profileCompleted: false,
@@ -71,11 +103,17 @@ exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        // Validate required fields
         if (!email || !password) {
             return res.status(400).json({ error: "Email and password are required" });
         }
 
-        const user = await User.findOne({ email });
+        // Validate email format
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: "Invalid email format" });
+        }
+
+        const user = await User.findOne({ email: email.trim().toLowerCase() });
         if (!user) {
             return res.status(401).json({ error: "Invalid credentials" });
         }
@@ -127,7 +165,22 @@ exports.verifyOTP = async (req, res) => {
     try {
         const { email, otp } = req.body;
 
-        const user = await User.findOne({ email });
+        // Validate required fields
+        if (!email || !otp) {
+            return res.status(400).json({ error: "Email and OTP are required" });
+        }
+
+        // Validate email format
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: "Invalid email format" });
+        }
+
+        // Validate OTP format (6 digits)
+        if (!/^\d{6}$/.test(otp)) {
+            return res.status(400).json({ error: "OTP must be 6 digits" });
+        }
+
+        const user = await User.findOne({ email: email.trim().toLowerCase() });
         if (!user) {
             return res.status(400).json({ error: "User not found" });
         }
@@ -173,9 +226,18 @@ exports.verifyOTP = async (req, res) => {
 exports.resendOTP = async (req, res) => {
     try {
         const { email } = req.body;
-        if (!email) return res.status(400).json({ error: "Email is required" });
 
-        const user = await User.findOne({ email });
+        // Validate required field
+        if (!email) {
+            return res.status(400).json({ error: "Email is required" });
+        }
+
+        // Validate email format
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: "Invalid email format" });
+        }
+
+        const user = await User.findOne({ email: email.trim().toLowerCase() });
         if (!user) return res.status(400).json({ error: "User not found" });
 
         if (user.verificationStatus === 'verified' && user.role === 'patient') {
