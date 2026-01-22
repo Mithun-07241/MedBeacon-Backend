@@ -16,11 +16,20 @@ const {
 
 exports.signup = async (req, res) => {
     try {
-        const { username, email, password, role, ...rest } = req.body;
+        const { username, email, password, confirmPassword, role, ...rest } = req.body;
 
         // Validate required fields
         if (!email || !password || !role) {
             return res.status(400).json({ error: "Email, password, and role are required" });
+        }
+
+        // Validate password confirmation
+        if (!confirmPassword) {
+            return res.status(400).json({ error: "Please confirm your password" });
+        }
+
+        if (password !== confirmPassword) {
+            return res.status(400).json({ error: "Passwords do not match" });
         }
 
         // Validate email format
