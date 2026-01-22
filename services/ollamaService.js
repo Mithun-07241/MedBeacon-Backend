@@ -6,7 +6,13 @@ const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'https://ross-nonadoptable-
 const getSystemPrompt = (userRole, dbContext = {}) => {
     const { doctors = [], specializations = [] } = dbContext;
 
-    const doctorsList = doctors.length > 0
+    // Internal doctor list with IDs (for AI to use when calling tools)
+    const doctorsListInternal = doctors.length > 0
+        ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - ID: ${d.id} - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
+        : 'Loading doctor information...';
+
+    // User-facing doctor list without IDs (for display to users)
+    const doctorsListDisplay = doctors.length > 0
         ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
         : 'Loading doctor information...';
 
@@ -18,8 +24,11 @@ const getSystemPrompt = (userRole, dbContext = {}) => {
 
 IMPORTANT: The current user's role is: ${userRole.toUpperCase()}
 
-DATABASE CONTEXT - AVAILABLE DOCTORS IN MEDBEACON:
-${doctorsList}
+DATABASE CONTEXT - AVAILABLE DOCTORS IN MEDBEACON (INTERNAL - USE THESE IDS FOR BOOKING):
+${doctorsListInternal}
+
+WHEN SHOWING DOCTORS TO USERS, USE THIS FORMAT (WITHOUT IDS):
+${doctorsListDisplay}
 
 Available specializations: ${specializationsList}
 
