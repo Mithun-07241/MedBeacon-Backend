@@ -52,6 +52,7 @@ const healthMetricsRoutes = require("./routes/healthMetricsRoutes");
 const callRoutes = require("./routes/callRoutes");
 const fcmRoutes = require("./routes/fcmRoutes");
 const emailPreferenceRoutes = require("./routes/emailPreferenceRoutes");
+const aiChatRoutes = require("./routes/aiChatRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -82,6 +83,7 @@ app.use("/api/metrics", healthMetricsRoutes);
 app.use("/api/calls", callRoutes);
 app.use("/api/fcm", fcmRoutes);
 app.use("/api/email-preferences", emailPreferenceRoutes);
+app.use("/api/ai-chat", aiChatRoutes);
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));
