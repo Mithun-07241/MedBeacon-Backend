@@ -1,5 +1,6 @@
 const DoctorDetail = require('../models/DoctorDetail');
 const Appointment = require('../models/Appointment');
+const User = require('../models/User');
 
 /**
  * Load database context for AI
@@ -34,11 +35,14 @@ async function loadDatabaseContext() {
                     ? (doctorStats.sumRatings / doctorStats.totalRatings).toFixed(1)
                     : 'New';
 
+                // Get user info for username fallback
+                const user = await User.findOne({ id: doc.userId });
+
                 return {
                     id: doc.userId,
                     name: doc.firstName && doc.lastName
                         ? `Dr. ${doc.firstName} ${doc.lastName}`
-                        : 'Doctor',
+                        : user?.username || 'Doctor',
                     specialization: doc.specialization || 'General Practitioner',
                     hospital: doc.hospital || 'N/A',
                     rating: averageRating,
