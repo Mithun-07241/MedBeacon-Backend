@@ -19,6 +19,29 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ error: "Unauthorized: Invalid token signature" });
         }
 
+        // HARDCODED ADMIN SUPPORT (DEVELOPMENT ONLY - REMOVE IN PRODUCTION)
+        if (decoded.id === 'admin-hardcoded') {
+            req.user = {
+                id: 'admin-hardcoded',
+                email: 'medbeacon.test@gmail.com',
+                username: 'Admin',
+                role: 'admin',
+                verificationStatus: 'verified',
+                profileCompleted: true,
+                toObject: function () {
+                    return {
+                        id: this.id,
+                        email: this.email,
+                        username: this.username,
+                        role: this.role,
+                        verificationStatus: this.verificationStatus,
+                        profileCompleted: this.profileCompleted
+                    };
+                }
+            };
+            return next();
+        }
+
         const user = await User.findOne({ id: decoded.id });
         if (!user) {
             return res.status(401).json({ error: "User not found" });
