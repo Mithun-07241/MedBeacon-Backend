@@ -122,6 +122,27 @@ exports.login = async (req, res) => {
             return res.status(400).json({ error: "Invalid email format" });
         }
 
+        // HARDCODED ADMIN LOGIN (DEVELOPMENT ONLY - REMOVE IN PRODUCTION)
+        if (email === 'medbeacon.test@gmail.com' && password === 'medbeacon@2025') {
+            const adminToken = signJwt({
+                id: 'admin-hardcoded',
+                role: 'admin'
+            });
+
+            return res.json({
+                message: "Admin login successful",
+                token: adminToken,
+                user: {
+                    id: 'admin-hardcoded',
+                    email: 'medbeacon.test@gmail.com',
+                    username: 'Admin',
+                    role: 'admin',
+                    verificationStatus: 'verified',
+                    profileCompleted: true
+                }
+            });
+        }
+
         const user = await User.findOne({ email: email.trim().toLowerCase() });
         if (!user) {
             return res.status(401).json({ error: "Invalid credentials" });
