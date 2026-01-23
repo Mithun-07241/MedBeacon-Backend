@@ -185,3 +185,213 @@ exports.getAllDoctors = async (req, res) => {
         res.status(500).json({ error: "Failed to fetch doctors" });
     }
 };
+
+/**
+ * Get all users with filters
+ */
+exports.getAllUsers = async (req, res) => {
+    try {
+        const { role, status, search } = req.query;
+
+        const match = {};
+        if (role) match.role = role;
+        if (status) match.verificationStatus = status;
+        if (search) {
+            match.$or = [
+                { email: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const users = await User.find(match)
+            .select('-password -otp -otpExpires')
+            .sort({ createdAt: -1 })
+            .limit(100);
+
+        res.json({ users, count: users.length });
+    } catch (error) {
+        console.error("Get All Users Error:", error);
+        res.status(500).json({ error: "Failed to fetch users" });
+    }
+};
+
+/**
+ * Get all patients
+ */
+exports.getAllPatients = async (req, res) => {
+    try {
+        const patients = await User.aggregate([
+            { $match: { role: "patient" } },
+            {
+                $lookup: {
+                    from: "patientdetails",
+                    localField: "id",
+                    foreignField: "userId",
+                    as: "details"
+                }
+            },
+            { $unwind: { path: "$details", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    id: 1,
+                    username: 1,
+                    email: 1,
+                    verificationStatus: 1,
+                    createdAt: 1,
+                    firstName: "$details.firstName",
+                    lastName: "$details.lastName",
+                    phoneNumber: "$details.phoneNumber",
+                    dateOfBirth: "$details.dateOfBirth",
+                    gender: "$details.gender"
+                }
+            },
+            { $sort: { createdAt: -1 } }
+        ]);
+
+        res.json({ patients, count: patients.length });
+    } catch (error) {
+        console.error("Get All Patients Error:", error);
+        res.status(500).json({ error: "Failed to fetch patients" });
+    }
+};
+
+/**
+ * Get all appointments (admin view)
+ */
+exports.getAllAppointments = async (req, res) => {
+    try {
+        const Appointment = require('../models/Appointment');
+        const { status, limit = 50 } = req.query;
+
+        const match = {};
+        if (status) match.status = status;
+
+        const appointments = await Appointment.find(match)
+            .populate('patientId', 'username email')
+            .populate('doctorId', 'username email')
+            .sort({ date: -1, time: -1 })
+            .limit(parseInt(limit));
+
+        const stats = await Appointment.aggregate([
+            {
+                $group: {
+                    _id: "$status",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        res.json({ appointments, stats });
+    } catch (error) {
+        console.error("Get All Appointments Error:", error);
+        res.status(500).json({ error: "Failed to fetch appointments" });
+    }
+};
+
+/**
+ * Get analytics data
+ */
+exports.getAnalytics = async (req, res) => {
+    try {
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        // User growth
+        const userGrowth = await User.aggregate([
+            {
+                $group: {
+                    _id: {
+                        year: { $year: "$createdAt" },
+                        month: { $month: "$createdAt" },
+                        role: "$role"
+                    },
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { "_id.year": 1, "_id.month": 1 } }
+        ]);
+
+        // Active users (last 30 days)
+        const activeUsers = await User.countDocuments({
+            updatedAt: { $gte: thirtyDaysAgo }
+        });
+
+        // New signups (last 7 days)
+        const newSignups = await User.countDocuments({
+            createdAt: { $gte: sevenDaysAgo }
+        });
+
+        // Doctor specialization distribution
+        const DoctorDetail = require('../models/DoctorDetail');
+        const specializationDist = await DoctorDetail.aggregate([
+            {
+                $group: {
+                    _id: "$specialization",
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { count: -1 } }
+        ]);
+
+        res.json({
+            userGrowth,
+            activeUsers,
+            newSignups,
+            specializationDistribution: specializationDist
+        });
+    } catch (error) {
+        console.error("Get Analytics Error:", error);
+        res.status(500).json({ error: "Failed to fetch analytics" });
+    }
+};
+
+/**
+ * Update user (suspend, activate, change role)
+ */
+exports.updateUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { action, role, verificationStatus } = req.body;
+
+        if (!isValidUserId(userId)) {
+            return res.status(400).json({ error: "Invalid user ID" });
+        }
+
+        const user = await User.findOne({ id: userId });
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Handle different actions
+        if (action === 'suspend') {
+            user.verificationStatus = 'rejected';
+        } else if (action === 'activate') {
+            user.verificationStatus = 'verified';
+        }
+
+        if (role && ['patient', 'doctor', 'admin'].includes(role)) {
+            user.role = role;
+        }
+
+        if (verificationStatus) {
+            user.verificationStatus = verificationStatus;
+        }
+
+        await user.save();
+
+        res.json({
+            message: "User updated successfully",
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                verificationStatus: user.verificationStatus
+            }
+        });
+    } catch (error) {
+        console.error("Update User Error:", error);
+        res.status(500).json({ error: "Failed to update user" });
+    }
+};

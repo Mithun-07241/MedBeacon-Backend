@@ -20,4 +20,19 @@ router.get('/stats', adminController.getAdminStats);
 // Get all doctors with optional status filter
 router.get('/doctors', adminController.getAllDoctors);
 
+// Get all users with filters
+router.get('/users', adminController.getAllUsers);
+
+// Get all patients
+router.get('/patients', adminController.getAllPatients);
+
+// Get all appointments
+router.get('/appointments', adminController.getAllAppointments);
+
+// Get analytics data
+router.get('/analytics', adminController.getAnalytics);
+
+// Update user
+router.patch('/users/:userId', adminController.updateUser);
+
 module.exports = router;
