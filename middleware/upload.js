@@ -16,16 +16,22 @@ const storage = new CloudinaryStorage({
     params: (req, file) => {
         // Determine resource type based on file mimetype
         const isImage = file.mimetype.startsWith('image/');
+        const isPDF = file.mimetype === 'application/pdf';
 
         // Extract file extension from original filename
-        const fileExtension = path.extname(file.originalname).substring(1); // Remove the dot
+        let fileExtension = path.extname(file.originalname).substring(1).toLowerCase();
+
+        // For PDFs, explicitly set format
+        if (isPDF) {
+            fileExtension = 'pdf';
+        }
 
         return {
             folder: "medbeacon_uploads",
             allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
             resource_type: isImage ? "image" : "raw",
-            format: fileExtension, // Preserve the original file extension
-            public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`, // Use timestamp + original filename without extension
+            format: fileExtension, // Explicitly set format
+            public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
         };
     },
 });
