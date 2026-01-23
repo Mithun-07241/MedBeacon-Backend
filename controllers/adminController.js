@@ -267,11 +267,30 @@ exports.getAllAppointments = async (req, res) => {
         const match = {};
         if (status) match.status = status;
 
+        // Get appointments without populate first
         const appointments = await Appointment.find(match)
-            .populate('patientId', 'username email')
-            .populate('doctorId', 'username email')
             .sort({ date: -1, time: -1 })
-            .limit(parseInt(limit));
+            .limit(parseInt(limit))
+            .lean();
+
+        // Manually fetch user details
+        const patientIds = [...new Set(appointments.map(a => a.patientId).filter(Boolean))];
+        const doctorIds = [...new Set(appointments.map(a => a.doctorId).filter(Boolean))];
+
+        const patients = await User.find({ id: { $in: patientIds } }).select('id username email');
+        const doctors = await User.find({ id: { $in: doctorIds } }).select('id username email');
+
+        const patientMap = {};
+        patients.forEach(p => { patientMap[p.id] = p; });
+        const doctorMap = {};
+        doctors.forEach(d => { doctorMap[d.id] = d; });
+
+        // Attach user data to appointments
+        const enrichedAppointments = appointments.map(apt => ({
+            ...apt,
+            patientId: patientMap[apt.patientId] || null,
+            doctorId: doctorMap[apt.doctorId] || null
+        }));
 
         const stats = await Appointment.aggregate([
             {
@@ -282,7 +301,7 @@ exports.getAllAppointments = async (req, res) => {
             }
         ]);
 
-        res.json({ appointments, stats });
+        res.json({ appointments: enrichedAppointments, stats });
     } catch (error) {
         console.error("Get All Appointments Error:", error);
         res.status(500).json({ error: "Failed to fetch appointments" });
