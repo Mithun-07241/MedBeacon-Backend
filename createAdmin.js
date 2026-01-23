@@ -18,7 +18,7 @@ async function createAdmin() {
         // Admin credentials
         const adminData = {
             username: 'admin',
-            email: 'admin@medbeacon.com',
+            email: 'medbeacon.test@gmail.com',
             password: 'medbeacon@2025', // Change this to a secure password
             role: 'admin'
         };
