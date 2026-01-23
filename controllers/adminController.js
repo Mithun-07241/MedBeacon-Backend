@@ -414,3 +414,199 @@ exports.updateUser = async (req, res) => {
         res.status(500).json({ error: "Failed to update user" });
     }
 };
+
+/**
+ * Delete user
+ */
+exports.deleteUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (!isValidUserId(userId)) {
+            return res.status(400).json({ error: "Invalid user ID" });
+        }
+
+        const user = await User.findOne({ id: userId });
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Prevent deleting admins
+        if (user.role === 'admin') {
+            return res.status(403).json({ error: "Cannot delete admin users" });
+        }
+
+        await User.deleteOne({ id: userId });
+
+        res.json({ message: "User deleted successfully" });
+    } catch (error) {
+        console.error("Delete User Error:", error);
+        res.status(500).json({ error: "Failed to delete user" });
+    }
+};
+
+/**
+ * Bulk verify doctors
+ */
+exports.bulkVerifyDoctors = async (req, res) => {
+    try {
+        const { userIds, action } = req.body;
+
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ error: "userIds array required" });
+        }
+
+        if (!['approve', 'reject'].includes(action)) {
+            return res.status(400).json({ error: "Action must be 'approve' or 'reject'" });
+        }
+
+        const newStatus = action === 'approve' ? 'verified' : 'rejected';
+
+        const result = await User.updateMany(
+            { id: { $in: userIds }, role: 'doctor' },
+            { $set: { verificationStatus: newStatus } }
+        );
+
+        res.json({
+            message: `${result.modifiedCount} doctors ${action}d successfully`,
+            count: result.modifiedCount
+        });
+    } catch (error) {
+        console.error("Bulk Verify Error:", error);
+        res.status(500).json({ error: "Failed to bulk verify doctors" });
+    }
+};
+
+/**
+ * Get activity logs
+ */
+exports.getActivityLogs = async (req, res) => {
+    try {
+        const ActivityLog = require('../models/ActivityLog');
+        const { startDate, endDate, action, adminId, limit = 100 } = req.query;
+
+        const match = {};
+        if (startDate || endDate) {
+            match.timestamp = {};
+            if (startDate) match.timestamp.$gte = new Date(startDate);
+            if (endDate) match.timestamp.$lte = new Date(endDate);
+        }
+        if (action) match.action = action;
+        if (adminId) match.adminId = adminId;
+
+        const logs = await ActivityLog.find(match)
+            .sort({ timestamp: -1 })
+            .limit(parseInt(limit));
+
+        res.json({ logs, count: logs.length });
+    } catch (error) {
+        console.error("Get Activity Logs Error:", error);
+        res.status(500).json({ error: "Failed to fetch activity logs" });
+    }
+};
+
+/**
+ * Export activity logs to CSV
+ */
+exports.exportActivityLogs = async (req, res) => {
+    try {
+        const ActivityLog = require('../models/ActivityLog');
+        const logs = await ActivityLog.find({}).sort({ timestamp: -1 }).limit(1000);
+
+        const csv = [
+            ['Timestamp', 'Admin Email', 'Action', 'Target Type', 'Target ID', 'Details'].join(','),
+            ...logs.map(log => [
+                new Date(log.timestamp).toISOString(),
+                log.adminEmail,
+                log.action,
+                log.targetType || 'N/A',
+                log.targetId || 'N/A',
+                `"${log.details}"`
+            ].join(','))
+        ].join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=activity-logs.csv');
+        res.send(csv);
+    } catch (error) {
+        console.error("Export Logs Error:", error);
+        res.status(500).json({ error: "Failed to export logs" });
+    }
+};
+
+/**
+ * Send announcement
+ */
+exports.sendAnnouncement = async (req, res) => {
+    try {
+        const Announcement = require('../models/Announcement');
+        const { v4: uuidv4 } = require('uuid');
+        const { title, message, targetAudience, priority } = req.body;
+
+        if (!title || !message) {
+            return res.status(400).json({ error: "Title and message required" });
+        }
+
+        const announcement = await Announcement.create({
+            id: uuidv4(),
+            title,
+            message,
+            targetAudience: targetAudience || 'all',
+            priority: priority || 'medium',
+            createdBy: req.user.id,
+            createdByEmail: req.user.email
+        });
+
+        res.json({ message: "Announcement sent successfully", announcement });
+    } catch (error) {
+        console.error("Send Announcement Error:", error);
+        res.status(500).json({ error: "Failed to send announcement" });
+    }
+};
+
+/**
+ * Get announcements
+ */
+exports.getAnnouncements = async (req, res) => {
+    try {
+        const Announcement = require('../models/Announcement');
+        const { limit = 50 } = req.query;
+
+        const announcements = await Announcement.find({})
+            .sort({ sentAt: -1 })
+            .limit(parseInt(limit));
+
+        res.json({ announcements, count: announcements.length });
+    } catch (error) {
+        console.error("Get Announcements Error:", error);
+        res.status(500).json({ error: "Failed to fetch announcements" });
+    }
+};
+
+/**
+ * Export users to CSV
+ */
+exports.exportUsers = async (req, res) => {
+    try {
+        const users = await User.find({}).select('-password -otp -otpExpires');
+
+        const csv = [
+            ['ID', 'Username', 'Email', 'Role', 'Status', 'Created'].join(','),
+            ...users.map(u => [
+                u.id,
+                u.username,
+                u.email,
+                u.role,
+                u.verificationStatus,
+                new Date(u.createdAt).toISOString()
+            ].join(','))
+        ].join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=users-report.csv');
+        res.send(csv);
+    } catch (error) {
+        console.error("Export Users Error:", error);
+        res.status(500).json({ error: "Failed to export users" });
+    }
+};

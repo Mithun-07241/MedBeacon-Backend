@@ -35,4 +35,21 @@ router.get('/analytics', adminController.getAnalytics);
 // Update user
 router.patch('/users/:userId', adminController.updateUser);
 
+// Delete user
+router.delete('/users/:userId', adminController.deleteUser);
+
+// Bulk verify doctors
+router.post('/bulk-verify-doctors', adminController.bulkVerifyDoctors);
+
+// Activity logs
+router.get('/activity-logs', adminController.getActivityLogs);
+router.get('/activity-logs/export', adminController.exportActivityLogs);
+
+// Announcements
+router.post('/announcements', adminController.sendAnnouncement);
+router.get('/announcements', adminController.getAnnouncements);
+
+// Export users
+router.get('/users/export', adminController.exportUsers);
+
 module.exports = router;
