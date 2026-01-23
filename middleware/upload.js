@@ -13,29 +13,59 @@ cloudinary.config({
 // Storage Configuration
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
-    params: (req, file) => {
+    params: async (req, file) => {
         // Determine resource type based on file mimetype
         const isImage = file.mimetype.startsWith('image/');
         const isPDF = file.mimetype === 'application/pdf';
 
-        // Extract file extension from original filename
-        let fileExtension = path.extname(file.originalname).substring(1).toLowerCase();
+        console.log(`[Upload] File: ${file.originalname}, MIME: ${file.mimetype}, isImage: ${isImage}, isPDF: ${isPDF}`);
 
-        // For PDFs, explicitly set format
-        if (isPDF) {
-            fileExtension = 'pdf';
+        // For images, use 'image' resource_type with allowed_formats
+        // For PDFs and docs, use 'auto' resource_type (allowed_formats doesn't work with 'auto')
+        if (isImage) {
+            return {
+                folder: "medbeacon_uploads",
+                resource_type: "image",
+                allowed_formats: ["jpg", "png", "jpeg", "gif", "webp"],
+                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
+            };
+        } else {
+            // For PDFs and documents
+            return {
+                folder: "medbeacon_uploads",
+                resource_type: "auto", // Auto-detects PDF format
+                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
+            };
         }
-
-        return {
-            folder: "medbeacon_uploads",
-            allowed_formats: ["jpg", "png", "jpeg", "pdf", "doc", "docx"],
-            resource_type: isImage ? "image" : "raw",
-            format: fileExtension, // Explicitly set format
-            public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
-        };
     },
 });
 
-const upload = multer({ storage: storage });
+// Add file filter for multer to restrict file types
+const fileFilter = (req, file, cb) => {
+    const allowedMimes = [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error(`Invalid file type. Allowed: images (jpg, png, gif, webp), PDF, DOC, DOCX. Got: ${file.mimetype}`), false);
+    }
+};
+
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB limit
+    }
+});
 
 module.exports = upload;
