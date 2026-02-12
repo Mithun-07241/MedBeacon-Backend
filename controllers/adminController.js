@@ -542,6 +542,7 @@ exports.sendAnnouncement = async (req, res) => {
         const Announcement = require('../models/Announcement');
         const { v4: uuidv4 } = require('uuid');
         const { sendAnnouncementNotification } = require('../services/pushNotificationService');
+        const { getIO } = require('../utils/socket');
         const { title, message, targetAudience, priority } = req.body;
 
         if (!title || !message) {
@@ -557,6 +558,23 @@ exports.sendAnnouncement = async (req, res) => {
             createdBy: req.user.id,
             createdByEmail: req.user.email
         });
+
+        // Emit WebSocket event to all connected users
+        try {
+            const io = getIO();
+            io.emit('new_announcement', {
+                id: announcement.id,
+                title: announcement.title,
+                message: announcement.message,
+                targetAudience: announcement.targetAudience,
+                priority: announcement.priority,
+                sentAt: announcement.sentAt
+            });
+            console.log('📢 WebSocket announcement broadcast sent');
+        } catch (socketError) {
+            console.error('Failed to emit WebSocket event:', socketError);
+            // Continue even if WebSocket fails
+        }
 
         // Send push notifications to targeted users
         try {
