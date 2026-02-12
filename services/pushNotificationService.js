@@ -219,9 +219,99 @@ const sendMessageNotification = async (fcmToken, messageData) => {
     }
 };
 
+/**
+ * Send announcement notification to multiple users
+ * @param {Array<string>} fcmTokens - Array of FCM device tokens
+ * @param {object} announcementData - Announcement information
+ * @returns {Promise<object>} - Success/failure statistics
+ */
+const sendAnnouncementNotification = async (fcmTokens, announcementData) => {
+    if (!firebaseInitialized) {
+        console.warn('Firebase not initialized. Skipping announcement notifications.');
+        return { successCount: 0, failureCount: 0 };
+    }
+
+    if (!fcmTokens || fcmTokens.length === 0) {
+        console.warn('No FCM tokens provided for announcement notification.');
+        return { successCount: 0, failureCount: 0 };
+    }
+
+    try {
+        const { title, message, priority = 'medium', announcementId } = announcementData;
+
+        // Determine notification styling based on priority
+        const priorityConfig = {
+            urgent: { color: '#EF4444', channelId: 'announcements_urgent' },
+            high: { color: '#F59E0B', channelId: 'announcements_high' },
+            medium: { color: '#3B82F6', channelId: 'announcements' },
+            low: { color: '#6B7280', channelId: 'announcements' }
+        };
+
+        const config = priorityConfig[priority] || priorityConfig.medium;
+
+        // Prepare multicast message
+        const multicastMessage = {
+            tokens: fcmTokens,
+            notification: {
+                title: `📢 ${title}`,
+                body: message.substring(0, 200), // Limit body length
+            },
+            data: {
+                type: 'announcement',
+                announcementId: announcementId || '',
+                priority: priority,
+                timestamp: Date.now().toString()
+            },
+            android: {
+                priority: priority === 'urgent' || priority === 'high' ? 'high' : 'normal',
+                notification: {
+                    channelId: config.channelId,
+                    priority: priority === 'urgent' ? 'max' : 'high',
+                    defaultSound: true,
+                    defaultVibrateTimings: true,
+                    color: config.color,
+                    tag: announcementId || 'announcement'
+                }
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        sound: 'default',
+                        badge: 1,
+                        category: 'ANNOUNCEMENT',
+                        'thread-id': 'announcements'
+                    }
+                }
+            }
+        };
+
+        // Send multicast notification
+        const response = await admin.messaging().sendEachForMulticast(multicastMessage);
+
+        console.log(`✅ Announcement notifications sent: ${response.successCount} succeeded, ${response.failureCount} failed`);
+
+        if (response.failureCount > 0) {
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    console.error(`❌ Failed to send to token ${idx}:`, resp.error);
+                }
+            });
+        }
+
+        return {
+            successCount: response.successCount,
+            failureCount: response.failureCount
+        };
+    } catch (error) {
+        console.error('❌ Failed to send announcement notifications:', error);
+        throw error;
+    }
+};
+
 module.exports = {
     sendCallNotification,
     sendMissedCallNotification,
     sendCallEndedNotification,
-    sendMessageNotification
+    sendMessageNotification,
+    sendAnnouncementNotification
 };

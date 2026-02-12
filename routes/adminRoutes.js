@@ -49,6 +49,9 @@ router.get('/activity-logs/export', adminController.exportActivityLogs);
 router.post('/announcements', adminController.sendAnnouncement);
 router.get('/announcements', adminController.getAnnouncements);
 
+// User-specific announcements (accessible to all authenticated users, not just admins)
+router.get('/announcements/user', authMiddleware, adminController.getUserAnnouncements);
+
 // Export users
 router.get('/users/export', adminController.exportUsers);
 

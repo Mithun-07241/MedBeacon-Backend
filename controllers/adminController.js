@@ -541,6 +541,7 @@ exports.sendAnnouncement = async (req, res) => {
     try {
         const Announcement = require('../models/Announcement');
         const { v4: uuidv4 } = require('uuid');
+        const { sendAnnouncementNotification } = require('../services/pushNotificationService');
         const { title, message, targetAudience, priority } = req.body;
 
         if (!title || !message) {
@@ -557,7 +558,70 @@ exports.sendAnnouncement = async (req, res) => {
             createdByEmail: req.user.email
         });
 
-        res.json({ message: "Announcement sent successfully", announcement });
+        // Send push notifications to targeted users
+        try {
+            // Build query based on target audience
+            let userQuery = {};
+
+            if (targetAudience === 'patients') {
+                userQuery.role = 'patient';
+            } else if (targetAudience === 'doctors') {
+                userQuery.role = 'doctor';
+            } else if (targetAudience === 'verified_doctors') {
+                userQuery = { role: 'doctor', verificationStatus: 'verified' };
+            }
+            // 'all' means no filter, so userQuery remains {}
+
+            // Fetch users with FCM tokens
+            const users = await User.find({
+                ...userQuery,
+                fcmToken: { $exists: true, $ne: null }
+            }).select('fcmToken');
+
+            const fcmTokens = users.map(u => u.fcmToken).filter(Boolean);
+
+            if (fcmTokens.length > 0) {
+                console.log(`📢 Sending announcement to ${fcmTokens.length} users...`);
+
+                const notificationResult = await sendAnnouncementNotification(fcmTokens, {
+                    title,
+                    message,
+                    priority: priority || 'medium',
+                    announcementId: announcement.id
+                });
+
+                console.log(`📢 Notification results: ${notificationResult.successCount} succeeded, ${notificationResult.failureCount} failed`);
+
+                res.json({
+                    message: "Announcement sent successfully",
+                    announcement,
+                    notificationStats: {
+                        totalUsers: fcmTokens.length,
+                        successCount: notificationResult.successCount,
+                        failureCount: notificationResult.failureCount
+                    }
+                });
+            } else {
+                console.log('📢 No users with FCM tokens found for this announcement');
+                res.json({
+                    message: "Announcement created successfully (no users with FCM tokens)",
+                    announcement,
+                    notificationStats: {
+                        totalUsers: 0,
+                        successCount: 0,
+                        failureCount: 0
+                    }
+                });
+            }
+        } catch (notificationError) {
+            // Log error but don't fail the announcement creation
+            console.error('❌ Failed to send push notifications:', notificationError);
+            res.json({
+                message: "Announcement created but push notifications failed",
+                announcement,
+                notificationError: notificationError.message
+            });
+        }
     } catch (error) {
         console.error("Send Announcement Error:", error);
         res.status(500).json({ error: "Failed to send announcement" });
@@ -579,6 +643,46 @@ exports.getAnnouncements = async (req, res) => {
         res.json({ announcements, count: announcements.length });
     } catch (error) {
         console.error("Get Announcements Error:", error);
+        res.status(500).json({ error: "Failed to fetch announcements" });
+    }
+};
+
+/**
+ * Get user-specific announcements based on role
+ */
+exports.getUserAnnouncements = async (req, res) => {
+    try {
+        const Announcement = require('../models/Announcement');
+        const { limit = 50 } = req.query;
+        const userRole = req.user.role;
+
+        // Build query to fetch announcements for this user
+        let query = {
+            $or: [
+                { targetAudience: 'all' }
+            ]
+        };
+
+        // Add role-specific announcements
+        if (userRole === 'patient') {
+            query.$or.push({ targetAudience: 'patients' });
+        } else if (userRole === 'doctor') {
+            query.$or.push({ targetAudience: 'doctors' });
+
+            // If doctor is verified, also include verified_doctors announcements
+            if (req.user.verificationStatus === 'verified') {
+                query.$or.push({ targetAudience: 'verified_doctors' });
+            }
+        }
+
+        const announcements = await Announcement.find(query)
+            .select('id title message priority sentAt targetAudience')
+            .sort({ sentAt: -1 })
+            .limit(parseInt(limit));
+
+        res.json({ announcements, count: announcements.length });
+    } catch (error) {
+        console.error("Get User Announcements Error:", error);
         res.status(500).json({ error: "Failed to fetch announcements" });
     }
 };
