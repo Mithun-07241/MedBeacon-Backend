@@ -4,7 +4,11 @@ const authMiddleware = require('../middleware/auth');
 const { adminOnly } = require('../middleware/adminMiddleware');
 const adminController = require('../controllers/adminController');
 
-// All routes require authentication and admin role
+// User-specific announcements (accessible to all authenticated users, not just admins)
+// This route must be BEFORE the adminOnly middleware
+router.get('/announcements/user', authMiddleware, adminController.getUserAnnouncements);
+
+// All routes below require authentication and admin role
 router.use(authMiddleware);
 router.use(adminOnly);
 
@@ -45,12 +49,9 @@ router.post('/bulk-verify-doctors', adminController.bulkVerifyDoctors);
 router.get('/activity-logs', adminController.getActivityLogs);
 router.get('/activity-logs/export', adminController.exportActivityLogs);
 
-// Announcements
+// Announcements (admin only)
 router.post('/announcements', adminController.sendAnnouncement);
 router.get('/announcements', adminController.getAnnouncements);
-
-// User-specific announcements (accessible to all authenticated users, not just admins)
-router.get('/announcements/user', authMiddleware, adminController.getUserAnnouncements);
 
 // Export users
 router.get('/users/export', adminController.exportUsers);
