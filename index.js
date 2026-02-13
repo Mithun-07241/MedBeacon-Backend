@@ -54,6 +54,9 @@ const fcmRoutes = require("./routes/fcmRoutes");
 const emailPreferenceRoutes = require("./routes/emailPreferenceRoutes");
 const aiChatRoutes = require("./routes/aiChatRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const billingRoutes = require("./routes/billingRoutes");
+const pharmacyRoutes = require("./routes/pharmacyRoutes");
+const inventoryRoutes = require("./routes/inventoryRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -86,6 +89,9 @@ app.use("/api/fcm", fcmRoutes);
 app.use("/api/email-preferences", emailPreferenceRoutes);
 app.use("/api/ai-chat", aiChatRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/billing", billingRoutes);
+app.use("/api/pharmacy", pharmacyRoutes);
+app.use("/api/inventory", inventoryRoutes);
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));

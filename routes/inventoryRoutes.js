@@ -1,0 +1,35 @@
+const express = require('express');
+const router = express.Router();
+const authMiddleware = require('../middleware/auth');
+const { adminOnly } = require('../middleware/adminMiddleware');
+const inventoryController = require('../controllers/inventoryController');
+
+// All routes require authentication and admin role
+router.use(authMiddleware);
+router.use(adminOnly);
+
+// Add new inventory item
+router.post('/items', inventoryController.addInventoryItem);
+
+// Get all inventory items
+router.get('/items', inventoryController.getInventoryItems);
+
+// Get inventory item by ID
+router.get('/items/:id', inventoryController.getInventoryItemById);
+
+// Update inventory item
+router.patch('/items/:id', inventoryController.updateInventoryItem);
+
+// Delete inventory item
+router.delete('/items/:id', inventoryController.deleteInventoryItem);
+
+// Assign item to user
+router.patch('/items/:id/assign', inventoryController.assignItem);
+
+// Get items grouped by category
+router.get('/by-category', inventoryController.getItemsByCategory);
+
+// Export inventory to CSV
+router.get('/export', inventoryController.exportInventory);
+
+module.exports = router;
