@@ -57,6 +57,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const billingRoutes = require("./routes/billingRoutes");
 const pharmacyRoutes = require("./routes/pharmacyRoutes");
 const inventoryRoutes = require("./routes/inventoryRoutes");
+const serviceRoutes = require("./routes/serviceRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -92,6 +93,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/pharmacy", pharmacyRoutes);
 app.use("/api/inventory", inventoryRoutes);
+app.use("/api", serviceRoutes); // /api/services
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));

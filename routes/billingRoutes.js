@@ -12,6 +12,9 @@ router.post('/invoices', billingController.createInvoice);
 // Get all invoices for logged-in doctor
 router.get('/invoices', billingController.getInvoices);
 
+// Get patients that the doctor has treated
+router.get('/treated-patients', billingController.getTreatedPatients);
+
 // Get invoice by ID
 router.get('/invoices/:id', billingController.getInvoiceById);
 

@@ -1,5 +1,6 @@
 const Invoice = require("../models/Invoice");
 const User = require("../models/User");
+const Appointment = require("../models/Appointment");
 const { v4: uuidv4 } = require("uuid");
 const { isValidUserId } = require("../utils/validation");
 
@@ -23,6 +24,58 @@ const generateInvoiceNumber = async () => {
     }
 
     return `${prefix}${String(nextNumber).padStart(4, '0')}`;
+};
+
+/**
+ * Get patients that the doctor has treated (based on completed appointments)
+ */
+exports.getTreatedPatients = async (req, res) => {
+    try {
+        const doctorId = req.user.id;
+
+        // Get all completed appointments for this doctor
+        const appointments = await Appointment.find({
+            doctorId,
+            status: 'completed'
+        }).lean();
+
+        // Extract unique patient IDs
+        const patientIds = [...new Set(appointments.map(apt => apt.patientId))];
+
+        if (patientIds.length === 0) {
+            return res.json({ patients: [] });
+        }
+
+        // Fetch patient details with their profile information
+        const patients = await User.aggregate([
+            { $match: { id: { $in: patientIds }, role: "patient" } },
+            {
+                $lookup: {
+                    from: "patientdetails",
+                    localField: "id",
+                    foreignField: "userId",
+                    as: "details"
+                }
+            },
+            { $unwind: { path: "$details", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    id: 1,
+                    username: 1,
+                    email: 1,
+                    firstName: "$details.firstName",
+                    lastName: "$details.lastName",
+                    phoneNumber: "$details.phoneNumber"
+                }
+            }
+        ]);
+
+        res.json({ patients });
+    } catch (error) {
+        console.error("Get Treated Patients Error:", error);
+        res.status(500).json({ error: "Failed to fetch treated patients" });
+    }
 };
 
 /**
@@ -66,8 +119,11 @@ exports.createInvoice = async (req, res) => {
             };
         });
 
-        const taxAmount = tax || 0;
-        const discountAmount = discount || 0;
+        // Tax and discount are now percentages
+        const taxPercent = tax || 0;
+        const discountPercent = discount || 0;
+        const taxAmount = (subtotal * taxPercent) / 100;
+        const discountAmount = (subtotal * discountPercent) / 100;
         const total = subtotal + taxAmount - discountAmount;
 
         // Generate invoice number
@@ -82,6 +138,8 @@ exports.createInvoice = async (req, res) => {
             appointmentId: appointmentId || undefined,
             items: validatedItems,
             subtotal,
+            taxPercent,
+            discountPercent,
             tax: taxAmount,
             discount: discountAmount,
             total,
