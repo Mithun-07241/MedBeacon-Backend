@@ -27,14 +27,14 @@ const storage = new CloudinaryStorage({
                 folder: "medbeacon_uploads",
                 resource_type: "image",
                 allowed_formats: ["jpg", "png", "jpeg", "gif", "webp"],
-                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
+                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname)).replace(/[^a-zA-Z0-9]/g, '_')}`,
             };
         } else {
             // For PDFs and documents
             return {
                 folder: "medbeacon_uploads",
                 resource_type: "auto", // Auto-detects PDF format
-                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname))}`,
+                public_id: `${Date.now()}_${path.basename(file.originalname, path.extname(file.originalname)).replace(/[^a-zA-Z0-9]/g, '_')}`,
             };
         }
     },
