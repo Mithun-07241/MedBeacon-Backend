@@ -111,6 +111,6 @@ const invoiceSchema = new mongoose.Schema({
 invoiceSchema.index({ doctorId: 1, createdAt: -1 });
 invoiceSchema.index({ patientId: 1 });
 invoiceSchema.index({ status: 1 });
-invoiceSchema.index({ invoiceNumber: 1 });
+// Note: invoiceNumber index is created automatically by unique: true
 
 module.exports = mongoose.model("Invoice", invoiceSchema);

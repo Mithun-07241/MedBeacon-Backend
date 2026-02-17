@@ -106,7 +106,8 @@ exports.uploadClinicLogo = async (req, res) => {
             return res.status(400).json({ error: "No file uploaded" });
         }
 
-        const logoUrl = `/uploads/${req.file.filename}`;
+        // For Cloudinary, use the secure URL provided
+        const logoUrl = req.file.path || `/uploads/${req.file.filename}`;
 
         let clinic = await ClinicProfile.findOne({ isSingleton: true });
 
