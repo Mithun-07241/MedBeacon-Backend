@@ -3,16 +3,13 @@ const { v4: uuidv4 } = require('uuid');
 exports.getClinicProfile = async (req, res) => {
     try {
         const { ClinicProfile } = req.models;
-        let clinic = await ClinicProfile.findOne({ isSingleton: true });
 
-        if (!clinic) {
-            clinic = await ClinicProfile.create({
-                id: uuidv4(),
-                clinicName: 'MedBeacon Health Center',
-                description: 'Comprehensive healthcare services',
-                isSingleton: true
-            });
-        }
+        // Atomic upsert — avoids duplicate key race condition
+        const clinic = await ClinicProfile.findOneAndUpdate(
+            { isSingleton: true },
+            { $setOnInsert: { id: uuidv4(), clinicName: 'MedBeacon Health Center', description: 'Comprehensive healthcare services', isSingleton: true } },
+            { upsert: true, new: true }
+        );
 
         res.json({ clinic });
     } catch (error) {
@@ -30,26 +27,28 @@ exports.updateClinicProfile = async (req, res) => {
 
         const { clinicName, address, city, state, zipCode, phone, email, website, taxId, description } = req.body;
 
-        let clinic = await ClinicProfile.findOne({ isSingleton: true });
+        // Build the $set payload — only include fields that were provided
+        const updates = {};
+        if (clinicName) updates.clinicName = clinicName;
+        if (address !== undefined) updates.address = address;
+        if (city !== undefined) updates.city = city;
+        if (state !== undefined) updates.state = state;
+        if (zipCode !== undefined) updates.zipCode = zipCode;
+        if (phone !== undefined) updates.phone = phone;
+        if (email !== undefined) updates.email = email;
+        if (website !== undefined) updates.website = website;
+        if (taxId !== undefined) updates.taxId = taxId;
+        if (description !== undefined) updates.description = description;
 
-        if (!clinic) {
-            clinic = await ClinicProfile.create({
-                id: uuidv4(), clinicName: clinicName || 'MedBeacon Health Center',
-                address, city, state, zipCode, phone, email, website, taxId, description, isSingleton: true
-            });
-        } else {
-            if (clinicName) clinic.clinicName = clinicName;
-            if (address !== undefined) clinic.address = address;
-            if (city !== undefined) clinic.city = city;
-            if (state !== undefined) clinic.state = state;
-            if (zipCode !== undefined) clinic.zipCode = zipCode;
-            if (phone !== undefined) clinic.phone = phone;
-            if (email !== undefined) clinic.email = email;
-            if (website !== undefined) clinic.website = website;
-            if (taxId !== undefined) clinic.taxId = taxId;
-            if (description !== undefined) clinic.description = description;
-            await clinic.save();
-        }
+        // Atomic upsert — avoids duplicate key race condition
+        const clinic = await ClinicProfile.findOneAndUpdate(
+            { isSingleton: true },
+            {
+                $set: updates,
+                $setOnInsert: { id: uuidv4(), isSingleton: true, clinicName: clinicName || 'MedBeacon Health Center' }
+            },
+            { upsert: true, new: true }
+        );
 
         res.json({ message: 'Clinic profile updated successfully', clinic });
     } catch (error) {
@@ -68,15 +67,15 @@ exports.uploadClinicLogo = async (req, res) => {
 
         const logoUrl = req.file.path || `/uploads/${req.file.filename}`;
 
-        let clinic = await ClinicProfile.findOne({ isSingleton: true });
-        if (!clinic) {
-            clinic = await ClinicProfile.create({
-                id: uuidv4(), clinicName: 'MedBeacon Health Center', clinicLogoUrl: logoUrl, isSingleton: true
-            });
-        } else {
-            clinic.clinicLogoUrl = logoUrl;
-            await clinic.save();
-        }
+        // Atomic upsert — avoids duplicate key race condition
+        const clinic = await ClinicProfile.findOneAndUpdate(
+            { isSingleton: true },
+            {
+                $set: { clinicLogoUrl: logoUrl },
+                $setOnInsert: { id: uuidv4(), clinicName: 'MedBeacon Health Center', isSingleton: true }
+            },
+            { upsert: true, new: true }
+        );
 
         res.json({ message: 'Logo uploaded successfully', logoUrl, clinic });
     } catch (error) {
@@ -94,7 +93,7 @@ exports.completeSetup = async (req, res) => {
 
         const clinic = await ClinicProfile.findOneAndUpdate(
             { isSingleton: true },
-            { setupComplete: true },
+            { $set: { setupComplete: true } },
             { new: true }
         );
 
