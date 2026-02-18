@@ -8,6 +8,7 @@ const {
     resendOTP,
     checkClinicSlug,
     getClinicByCode,
+    searchClinics,
 } = require("../controllers/authController");
 const authMiddleware = require("../middleware/auth");
 
@@ -19,6 +20,7 @@ router.get("/me", authMiddleware, getMe);
 
 // Clinic discovery routes (no auth required)
 router.get("/clinic/check-name", checkClinicSlug);
+router.get("/clinic/search", searchClinics);
 router.get("/clinic/code/:code", getClinicByCode);
 
 module.exports = router;

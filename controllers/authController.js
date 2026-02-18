@@ -408,6 +408,29 @@ exports.resendOTP = async (req, res) => {
     }
 };
 
+// ─── Search Clinics ──────────────────────────────────────────────────────────
+
+exports.searchClinics = async (req, res) => {
+    try {
+        const { q } = req.query;
+        const ClinicRegistry = await getRegistryModel();
+
+        const query = q && q.trim().length > 0
+            ? { clinicName: { $regex: q.trim(), $options: 'i' }, isActive: true }
+            : { isActive: true };
+
+        const clinics = await ClinicRegistry.find(query)
+            .select('clinicName clinicCode slug')
+            .limit(10)
+            .sort({ clinicName: 1 });
+
+        res.json({ clinics });
+    } catch (error) {
+        console.error('Search Clinics Error:', error);
+        res.status(500).json({ error: 'Failed to search clinics' });
+    }
+};
+
 // ─── Check Clinic Slug ────────────────────────────────────────────────────────
 
 exports.checkClinicSlug = async (req, res) => {
