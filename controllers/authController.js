@@ -416,7 +416,13 @@ exports.searchClinics = async (req, res) => {
         const ClinicRegistry = await getRegistryModel();
 
         const query = q && q.trim().length > 0
-            ? { clinicName: { $regex: q.trim(), $options: 'i' }, isActive: true }
+            ? {
+                $or: [
+                    { clinicName: { $regex: q.trim(), $options: 'i' } },
+                    { slug: { $regex: q.trim(), $options: 'i' } },
+                ],
+                isActive: true,
+            }
             : { isActive: true };
 
         const clinics = await ClinicRegistry.find(query)
