@@ -49,13 +49,17 @@ exports.updateClinicProfile = async (req, res) => {
         if (taxId !== undefined) updates.taxId = taxId;
         if (description !== undefined) updates.description = description;
 
-        // Atomic upsert — avoids duplicate key race condition
+        // Atomic upsert — $setOnInsert only seeds fields that are never in $set
+        // (clinicName must NOT appear in both $set and $setOnInsert — MongoDB error code 40)
+        const setOnInsert = { id: uuidv4(), isSingleton: true };
+        if (!updates.clinicName) {
+            // Only seed a default name on first-time insert if none was provided
+            setOnInsert.clinicName = 'MedBeacon Health Center';
+        }
+
         const clinic = await ClinicProfile.findOneAndUpdate(
             { isSingleton: true },
-            {
-                $set: updates,
-                $setOnInsert: { id: uuidv4(), isSingleton: true, clinicName: clinicName || 'MedBeacon Health Center' }
-            },
+            { $set: updates, $setOnInsert: setOnInsert },
             { upsert: true, new: true }
         );
 
