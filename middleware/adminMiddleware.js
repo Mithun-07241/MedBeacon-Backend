@@ -7,7 +7,7 @@ exports.adminOnly = (req, res, next) => {
         return res.status(401).json({ error: "Authentication required" });
     }
 
-    if (req.user.role !== 'admin') {
+    if (!['admin', 'clinic_admin'].includes(req.user.role)) {
         return res.status(403).json({ error: "Admin access required" });
     }
 
