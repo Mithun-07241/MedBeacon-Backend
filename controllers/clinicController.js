@@ -1,4 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
+const { connectRegistry } = require('../config/registry');
+const clinicRegistrySchema = require('../models/registry/Clinic');
+
+const getRegistryModel = async () => {
+    const conn = await connectRegistry();
+    try { return conn.model('ClinicRegistry'); }
+    catch { return conn.model('ClinicRegistry', clinicRegistrySchema); }
+};
+
 
 exports.getClinicProfile = async (req, res) => {
     try {
@@ -103,3 +112,22 @@ exports.completeSetup = async (req, res) => {
         res.status(500).json({ error: 'Failed to complete setup' });
     }
 };
+
+// ─── Get Clinic Registry Info (clinicCode, slug) ────────────────────────────
+exports.getClinicInfo = async (req, res) => {
+    try {
+        const dbName = req.user?.dbName;
+        if (!dbName) return res.status(400).json({ error: 'No clinic database associated with this account' });
+
+        const ClinicRegistry = await getRegistryModel();
+        const entry = await ClinicRegistry.findOne({ dbName }).select('clinicName clinicCode slug isActive');
+
+        if (!entry) return res.status(404).json({ error: 'Clinic not found in registry' });
+
+        res.json({ clinicName: entry.clinicName, clinicCode: entry.clinicCode, slug: entry.slug });
+    } catch (error) {
+        console.error('Get Clinic Info Error:', error);
+        res.status(500).json({ error: 'Failed to fetch clinic info' });
+    }
+};
+
