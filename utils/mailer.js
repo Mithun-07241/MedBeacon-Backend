@@ -45,44 +45,89 @@ if (!SENDGRID_API_KEY) {
     });
 }
 
-// Generate email template with logos and unsubscribe link
+// ─── Shared OTP email content builder ───────────────────────────────────────
+const buildOTPContent = (otp) => `
+    <p style="margin:0 0 8px; font-size:14px; color:#6b7280;">VERIFICATION CODE</p>
+    <div style="letter-spacing:10px; font-size:36px; font-weight:700; color:#111827; font-family:'Courier New',monospace; background:#f3f4f6; border:2px solid #e5e7eb; border-radius:10px; padding:18px 24px; display:inline-block; margin:0 0 8px;">
+        ${otp}
+    </div>
+    <p style="margin:8px 0 0; font-size:12px; color:#9ca3af;">Expires in <strong>10 minutes</strong></p>
+`;
+
+// ─── Master email wrapper ─────────────────────────────────────────────────────
 const generateEmailTemplate = (content, unsubscribeToken) => {
     const unsubscribeUrl = `${FRONTEND_URL}/unsubscribe/${unsubscribeToken}`;
+    const year = new Date().getFullYear();
 
-    return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
-        <div style="text-align: center; margin-bottom: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px;">
-            <img src="${FRONTEND_URL}/logo-light.png" alt="MedBeacon Logo" style="max-width: 180px; height: auto; margin-bottom: 10px;" />
-            <p style="color: #ffffff; font-size: 14px; margin: 0;">Your Healthcare Companion</p>
-        </div>
-        <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+    return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>MedBeacon</title></head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:#0f172a;padding:32px 40px;text-align:center;">
+            <!-- Text-based logo — renders in all clients -->
+            <div style="display:inline-block;background:#1e40af;border-radius:12px;padding:10px 20px;margin-bottom:14px;">
+              <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:1px;">Med</span><span style="font-size:20px;font-weight:800;color:#60a5fa;letter-spacing:1px;">Beacon</span>
+            </div>
+            <p style="margin:0;font-size:13px;color:#94a3b8;letter-spacing:0.5px;">Your Healthcare Companion</p>
+          </td>
+        </tr>
+
+        <!-- Blue accent bar -->
+        <tr><td style="background:linear-gradient(90deg,#1e40af,#2563eb);height:4px;"></td></tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:40px 40px 32px;">
             ${content}
-        </div>
-        <div style="text-align: center; margin-top: 20px; padding: 15px; border-top: 1px solid #e0e0e0;">
-            <img src="${FRONTEND_URL}/developer-watermark.png" alt="Developer Watermark" style="max-width: 120px; height: auto; opacity: 0.6; margin-bottom: 10px;" />
-            <p style="color: #888; font-size: 12px; margin: 5px 0;">© ${new Date().getFullYear()} MedBeacon. All rights reserved.</p>
-            <p style="color: #999; font-size: 11px; margin: 10px 0;">
-                <a href="${unsubscribeUrl}" style="color: #667eea; text-decoration: none;">Unsubscribe</a> from these emails
+          </td>
+        </tr>
+
+        <!-- Divider -->
+        <tr><td style="padding:0 40px;"><hr style="border:none;border-top:1px solid #e2e8f0;margin:0;"></td></tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 40px;text-align:center;background:#f8fafc;">
+            <p style="margin:0 0 6px;font-size:12px;color:#94a3b8;">© ${year} MedBeacon. All rights reserved.</p>
+            <p style="margin:0;font-size:11px;color:#cbd5e1;">
+              <a href="${unsubscribeUrl}" style="color:#2563eb;text-decoration:none;">Unsubscribe</a> from these emails
             </p>
-        </div>
-    </div>
-    `;
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 };
 
+// ─── OTP via SendGrid ─────────────────────────────────────────────────────────
 const sendOTPViaSendGrid = async (email, otp, userId) => {
     try {
-        // Get or create unsubscribe token
         const unsubscribeToken = await EmailPreference.getOrCreateToken(userId, email);
 
         const content = `
-            <h2 style="color: #333; margin-top: 0;">Verify Your Email Address</h2>
-            <p style="color: #555; line-height: 1.6;">Hello,</p>
-            <p style="color: #555; line-height: 1.6;">Thank you for registering with MedBeacon. To complete your account setup, please use the verification code below:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #000; background-color: #f0f0f0; padding: 10px 20px; border-radius: 5px; border: 1px solid #ddd;">${otp}</span>
+            <h2 style="margin:0 0 16px;font-size:22px;font-weight:700;color:#0f172a;">Verify Your Email Address</h2>
+            <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">Hello,</p>
+            <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.6;">
+                Thank you for registering with <strong>MedBeacon</strong>. Use the verification code below to complete your account setup:
+            </p>
+            <div style="text-align:center;margin:0 0 28px;">
+                ${buildOTPContent(otp)}
             </div>
-            <p style="color: #555; line-height: 1.6;">This code will expire in <strong>10 minutes</strong>.</p>
-            <p style="color: #999; font-size: 12px; margin-top: 30px;">If you didn't request this code, you can safely ignore this email.</p>
+            <div style="background:#eff6ff;border-left:4px solid #2563eb;border-radius:6px;padding:14px 18px;margin-bottom:24px;">
+                <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.5;">
+                    🔒 <strong>Security tip:</strong> MedBeacon will never ask for this code via phone or chat. Keep it private.
+                </p>
+            </div>
+            <p style="margin:0;font-size:12px;color:#94a3b8;">If you didn't create a MedBeacon account, you can safely ignore this email.</p>
         `;
 
         const msg = {
@@ -106,20 +151,26 @@ const sendOTPViaSendGrid = async (email, otp, userId) => {
     }
 };
 
+// ─── OTP via SMTP ─────────────────────────────────────────────────────────────
 const sendOTPViaSMTP = async (email, otp, userId) => {
     try {
-        // Get or create unsubscribe token
         const unsubscribeToken = await EmailPreference.getOrCreateToken(userId, email);
 
         const content = `
-            <h2 style="color: #333; margin-top: 0;">Verify Your Email Address</h2>
-            <p style="color: #555; line-height: 1.6;">Hello,</p>
-            <p style="color: #555; line-height: 1.6;">Thank you for registering with MedBeacon. To complete your account setup, please use the verification code below:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #000; background-color: #f0f0f0; padding: 10px 20px; border-radius: 5px; border: 1px solid #ddd;">${otp}</span>
+            <h2 style="margin:0 0 16px;font-size:22px;font-weight:700;color:#0f172a;">Verify Your Email Address</h2>
+            <p style="margin:0 0 12px;font-size:15px;color:#475569;line-height:1.6;">Hello,</p>
+            <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.6;">
+                Thank you for registering with <strong>MedBeacon</strong>. Use the verification code below to complete your account setup:
+            </p>
+            <div style="text-align:center;margin:0 0 28px;">
+                ${buildOTPContent(otp)}
             </div>
-            <p style="color: #555; line-height: 1.6;">This code will expire in <strong>10 minutes</strong>.</p>
-            <p style="color: #999; font-size: 12px; margin-top: 30px;">If you didn't request this code, you can safely ignore this email.</p>
+            <div style="background:#eff6ff;border-left:4px solid #2563eb;border-radius:6px;padding:14px 18px;margin-bottom:24px;">
+                <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.5;">
+                    🔒 <strong>Security tip:</strong> MedBeacon will never ask for this code via phone or chat. Keep it private.
+                </p>
+            </div>
+            <p style="margin:0;font-size:12px;color:#94a3b8;">If you didn't create a MedBeacon account, you can safely ignore this email.</p>
         `;
 
         const info = await transporter.sendMail({
@@ -138,6 +189,8 @@ const sendOTPViaSMTP = async (email, otp, userId) => {
         return false;
     }
 };
+
+
 
 const sendOTP = async (email, otp, userId) => {
     console.log(`📧 Attempting to send OTP to: ${email}`);
