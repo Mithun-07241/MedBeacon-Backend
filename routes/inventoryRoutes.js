@@ -4,8 +4,13 @@ const authMiddleware = require('../middleware/auth');
 const { adminOnly } = require('../middleware/adminMiddleware');
 const inventoryController = require('../controllers/inventoryController');
 
-// All routes require authentication and admin role
+// All routes require authentication
 router.use(authMiddleware);
+
+// Read-only: any authenticated user (used by billing to pick inventory items)
+router.get('/items/public', inventoryController.getInventoryItems);
+
+// All routes below require admin role
 router.use(adminOnly);
 
 // Add new inventory item
