@@ -99,16 +99,25 @@ exports.uploadClinicLogo = async (req, res) => {
 
 exports.completeSetup = async (req, res) => {
     try {
-        const { ClinicProfile } = req.models;
+        const { ClinicProfile, User } = req.models;
         if (!['admin', 'clinic_admin'].includes(req.user.role)) {
             return res.status(403).json({ error: 'Only admins can complete setup' });
         }
 
+        // Mark clinic setup as complete
         const clinic = await ClinicProfile.findOneAndUpdate(
             { isSingleton: true },
             { $set: { setupComplete: true } },
             { new: true }
         );
+
+        // Also mark the user's profileCompleted so login won't redirect to onboarding again
+        if (User) {
+            await User.findOneAndUpdate(
+                { id: req.user.id },
+                { $set: { profileCompleted: true } }
+            );
+        }
 
         res.json({ message: 'Setup completed', clinic });
     } catch (error) {
