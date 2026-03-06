@@ -15,6 +15,12 @@ router.get('/invoices', billingController.getInvoices);
 // Get patients that the doctor has treated
 router.get('/treated-patients', billingController.getTreatedPatients);
 
+// Get invoices for logged-in patient (sent + paid only)
+router.get('/patient-invoices', billingController.getPatientInvoices);
+
+// Patient submits UPI payment reference/UTR
+router.post('/invoices/:id/payment-ref', billingController.submitPaymentRef);
+
 // Get invoice by ID
 router.get('/invoices/:id', billingController.getInvoiceById);
 
@@ -31,3 +37,4 @@ router.patch('/invoices/:id/mark-paid', billingController.markAsPaid);
 router.get('/invoices/:id/pdf', billingController.exportInvoicePDF);
 
 module.exports = router;
+

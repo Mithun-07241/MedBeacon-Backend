@@ -46,7 +46,7 @@ exports.getTreatedPatients = async (req, res) => {
 exports.createInvoice = async (req, res) => {
     try {
         const { Invoice, User } = req.models;
-        const { patientId, appointmentId, items, tax, discount, dueDate, notes } = req.body;
+        const { patientId, appointmentId, items, tax, discount, dueDate, notes, upiId } = req.body;
         const doctorId = req.user.id;
 
         if (req.user.role !== 'doctor') return res.status(403).json({ error: 'Only doctors can create invoices' });
@@ -79,7 +79,8 @@ exports.createInvoice = async (req, res) => {
             appointmentId: appointmentId || undefined,
             items: validatedItems, subtotal, taxPercent, discountPercent,
             tax: taxAmount, discount: discountAmount, total,
-            dueDate: new Date(dueDate), notes: notes || ''
+            dueDate: new Date(dueDate), notes: notes || '',
+            upiId: upiId || ''
         });
 
         res.status(201).json({ message: 'Invoice created successfully', invoice });
@@ -204,6 +205,58 @@ exports.deleteInvoice = async (req, res) => {
     } catch (error) {
         console.error('Delete Invoice Error:', error);
         res.status(500).json({ error: 'Failed to delete invoice' });
+    }
+};
+
+exports.getPatientInvoices = async (req, res) => {
+    try {
+        const { Invoice, User } = req.models;
+        const patientId = req.user.id;
+
+        if (req.user.role !== 'patient') return res.status(403).json({ error: 'Only patients can access their invoices' });
+
+        const invoices = await Invoice.find({ patientId, status: { $in: ['sent', 'paid'] } })
+            .sort({ createdAt: -1 })
+            .lean();
+
+        const doctorIds = [...new Set(invoices.map(inv => inv.doctorId))];
+        const doctors = await User.find({ id: { $in: doctorIds } }).select('id username email');
+        const doctorMap = {};
+        doctors.forEach(d => { doctorMap[d.id] = d; });
+
+        const enriched = invoices.map(inv => ({ ...inv, doctor: doctorMap[inv.doctorId] || null }));
+
+        const pendingCount = invoices.filter(i => i.status === 'sent').length;
+        res.json({ invoices: enriched, pendingCount });
+    } catch (error) {
+        console.error('Get Patient Invoices Error:', error);
+        res.status(500).json({ error: 'Failed to fetch your invoices' });
+    }
+};
+
+exports.submitPaymentRef = async (req, res) => {
+    try {
+        const { Invoice } = req.models;
+        const { id } = req.params;
+        const { paymentRef } = req.body;
+
+        if (req.user.role !== 'patient') return res.status(403).json({ error: 'Only patients can submit payment references' });
+        if (!paymentRef || !paymentRef.trim()) return res.status(400).json({ error: 'Payment reference is required' });
+
+        const invoice = await Invoice.findOne({ id });
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        if (invoice.patientId !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+        if (invoice.status === 'paid') return res.status(400).json({ error: 'Invoice is already paid' });
+        if (invoice.status !== 'sent') return res.status(400).json({ error: 'Invoice is not in payable state' });
+
+        invoice.paymentRef = paymentRef.trim();
+        invoice.paymentRefSubmittedAt = new Date();
+        await invoice.save();
+
+        res.json({ message: 'Payment reference submitted successfully', invoice });
+    } catch (error) {
+        console.error('Submit Payment Ref Error:', error);
+        res.status(500).json({ error: 'Failed to submit payment reference' });
     }
 };
 

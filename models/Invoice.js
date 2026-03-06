@@ -102,6 +102,17 @@ const invoiceSchema = new mongoose.Schema({
     notes: {
         type: String,
         default: ""
+    },
+    upiId: {
+        type: String,
+        default: ""
+    },
+    paymentRef: {
+        type: String,
+        default: ""
+    },
+    paymentRefSubmittedAt: {
+        type: Date
     }
 }, {
     timestamps: true
