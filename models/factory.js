@@ -69,6 +69,9 @@ const invoiceSchema = new mongoose.Schema({
     dueDate: { type: Date, required: true },
     paidDate: { type: Date },
     notes: { type: String, default: '' },
+    upiId: { type: String, default: '' },
+    paymentRef: { type: String, default: '' },
+    paymentRefSubmittedAt: { type: Date },
 }, { timestamps: true });
 invoiceSchema.index({ doctorId: 1, createdAt: -1 });
 invoiceSchema.index({ patientId: 1 });
@@ -284,6 +287,7 @@ const clinicProfileSchema = new mongoose.Schema({
     website: { type: String, default: '' },
     taxId: { type: String, default: '' },
     description: { type: String, default: '' },
+    upiId: { type: String, default: '' },
     isSingleton: { type: Boolean, default: true },
     setupComplete: { type: Boolean, default: false },
 }, { timestamps: true });

@@ -45,8 +45,8 @@ exports.getTreatedPatients = async (req, res) => {
 
 exports.createInvoice = async (req, res) => {
     try {
-        const { Invoice, User } = req.models;
-        const { patientId, appointmentId, items, tax, discount, dueDate, notes, upiId } = req.body;
+        const { Invoice, User, ClinicProfile } = req.models;
+        const { patientId, appointmentId, items, tax, discount, dueDate, notes, upiId: bodyUpiId } = req.body;
         const doctorId = req.user.id;
 
         if (req.user.role !== 'doctor') return res.status(403).json({ error: 'Only doctors can create invoices' });
@@ -57,6 +57,13 @@ exports.createInvoice = async (req, res) => {
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ error: 'At least one item is required' });
+        }
+
+        // Resolve UPI ID: use what the frontend sent, or fall back to the clinic's stored UPI ID
+        let resolvedUpiId = bodyUpiId || '';
+        if (!resolvedUpiId && ClinicProfile) {
+            const clinicDoc = await ClinicProfile.findOne({ isSingleton: true }).lean();
+            resolvedUpiId = clinicDoc?.upiId || '';
         }
 
         let subtotal = 0;
@@ -80,7 +87,7 @@ exports.createInvoice = async (req, res) => {
             items: validatedItems, subtotal, taxPercent, discountPercent,
             tax: taxAmount, discount: discountAmount, total,
             dueDate: new Date(dueDate), notes: notes || '',
-            upiId: upiId || ''
+            upiId: resolvedUpiId
         });
 
         res.status(201).json({ message: 'Invoice created successfully', invoice });
@@ -88,6 +95,7 @@ exports.createInvoice = async (req, res) => {
         console.error('Create Invoice Error:', error);
         res.status(500).json({ error: 'Failed to create invoice' });
     }
+
 };
 
 exports.getInvoices = async (req, res) => {
