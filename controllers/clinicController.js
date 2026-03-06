@@ -34,7 +34,7 @@ exports.updateClinicProfile = async (req, res) => {
             return res.status(403).json({ error: 'Only admins can update clinic profile' });
         }
 
-        const { clinicName, address, city, state, zipCode, phone, email, website, taxId, description } = req.body;
+        const { clinicName, address, city, state, zipCode, phone, email, website, taxId, description, upiId } = req.body;
 
         // Build the $set payload — only include fields that were provided
         const updates = {};
@@ -48,6 +48,7 @@ exports.updateClinicProfile = async (req, res) => {
         if (website !== undefined) updates.website = website;
         if (taxId !== undefined) updates.taxId = taxId;
         if (description !== undefined) updates.description = description;
+        if (upiId !== undefined) updates.upiId = upiId;
 
         // Atomic upsert — $setOnInsert only seeds fields that are never in $set
         // (clinicName must NOT appear in both $set and $setOnInsert — MongoDB error code 40)

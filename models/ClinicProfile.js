@@ -51,6 +51,10 @@ const clinicProfileSchema = new mongoose.Schema({
         type: String,
         default: ""
     },
+    upiId: {
+        type: String,
+        default: ""
+    },
     isSingleton: {
         type: Boolean,
         default: true
