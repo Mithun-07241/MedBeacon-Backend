@@ -24,6 +24,9 @@ router.post('/invoices/:id/payment-ref', billingController.submitPaymentRef);
 // Get invoice by ID
 router.get('/invoices/:id', billingController.getInvoiceById);
 
+// Lightweight status check for payment auto-detection polling
+router.get('/invoices/:id/status', billingController.getInvoiceStatus);
+
 // Update invoice
 router.patch('/invoices/:id', billingController.updateInvoice);
 

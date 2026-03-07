@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const { isValidUserId } = require('../utils/validation');
+const { getIO, onlineUsers } = require('../utils/socket');
 
 const generateInvoiceNumber = async (Invoice) => {
     const year = new Date().getFullYear();
@@ -283,10 +284,42 @@ exports.markAsPaid = async (req, res) => {
         invoice.paidDate = paidDate ? new Date(paidDate) : new Date();
         await invoice.save();
 
+        // 🔔 Notify patient in real-time via Socket.IO
+        try {
+            const io = getIO();
+            const patientSocketId = onlineUsers.get(invoice.patientId);
+            if (patientSocketId) {
+                io.to(patientSocketId).emit('payment_confirmed', {
+                    invoiceId: invoice.id,
+                    invoiceNumber: invoice.invoiceNumber,
+                    total: invoice.total,
+                    paidDate: invoice.paidDate,
+                });
+            }
+        } catch (socketErr) {
+            // Non-fatal — don't fail the request if socket push fails
+            console.warn('Socket push failed:', socketErr.message);
+        }
+
         res.json({ message: 'Invoice marked as paid', invoice });
     } catch (error) {
         console.error('Mark As Paid Error:', error);
         res.status(500).json({ error: 'Failed to mark invoice as paid' });
+    }
+};
+
+// Lightweight status-check endpoint for payment polling
+exports.getInvoiceStatus = async (req, res) => {
+    try {
+        const { Invoice } = req.models;
+        const { id } = req.params;
+        const invoice = await Invoice.findOne({ id }).select('id patientId status paidDate total invoiceNumber').lean();
+        if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+        if (req.user.role === 'patient' && invoice.patientId !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+        res.json({ status: invoice.status, paidDate: invoice.paidDate, invoiceNumber: invoice.invoiceNumber, total: invoice.total });
+    } catch (error) {
+        console.error('Get Invoice Status Error:', error);
+        res.status(500).json({ error: 'Failed to get invoice status' });
     }
 };
 
