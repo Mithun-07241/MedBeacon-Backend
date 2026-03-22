@@ -1,12 +1,17 @@
 const { userSockets } = require('../socketServer');
 const { sendMessageNotification } = require('../services/pushNotificationService');
 const { isValidMessage, isValidUserId, sanitizeString } = require('../utils/validation');
+const { encryptMessage, decryptMessage, decryptMessages } = require('../utils/chatEncryption');
 
 exports.getHistory = async (req, res) => {
     try {
         const { Message } = req.models;
         const { doctorId, patientId } = req.params;
-        const messages = await Message.find({ doctorId, patientId }).sort({ timestamp: 1 });
+        const rawMessages = await Message.find({ doctorId, patientId }).sort({ timestamp: 1 });
+
+        // Decrypt all messages before sending to client
+        const messages = decryptMessages(rawMessages, doctorId, patientId);
+
         res.json(messages);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch chat history' });
@@ -23,12 +28,21 @@ exports.sendMessage = async (req, res) => {
         if (!isValidMessage(text)) return res.status(400).json({ error: 'Message must be between 1 and 5000 characters' });
 
         const sanitizedText = sanitizeString(text);
-        const message = await Message.create({ doctorId, patientId, sender: req.user.id, text: sanitizedText });
 
+        // Encrypt before persisting to MongoDB
+        const encryptedText = encryptMessage(sanitizedText, doctorId, patientId);
+
+        const message = await Message.create({
+            doctorId, patientId, sender: req.user.id,
+            text: encryptedText  // stored encrypted
+        });
+
+        // Also encrypt the lastMessage preview in Conversation
+        const encryptedPreview = encryptMessage(sanitizedText, doctorId, patientId);
         const unreadFor = req.user.role === 'doctor' ? 'patient' : 'doctor';
         await Conversation.findOneAndUpdate(
             { doctorId, patientId },
-            { $set: { lastMessage: sanitizedText, lastSender: req.user.id }, $inc: { [`unread.${unreadFor}`]: 1 } },
+            { $set: { lastMessage: encryptedPreview, lastSender: req.user.id }, $inc: { [`unread.${unreadFor}`]: 1 } },
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
 
@@ -41,7 +55,8 @@ exports.sendMessage = async (req, res) => {
                 if (recipient?.fcmToken) {
                     await sendMessageNotification(recipient.fcmToken, {
                         senderId: req.user.id, senderName: req.user.username || req.user.email,
-                        messageText: text, conversationId: `${doctorId}_${patientId}`, doctorId, patientId
+                        // Send plaintext in FCM payload (in-transit, not stored)
+                        messageText: sanitizedText, conversationId: `${doctorId}_${patientId}`, doctorId, patientId
                     });
                 }
             } catch (pushError) {
@@ -49,7 +64,10 @@ exports.sendMessage = async (req, res) => {
             }
         }
 
-        res.status(201).json(message);
+        // Return the message with decrypted text to the sender
+        const messageObj = message.toObject();
+        messageObj.text = sanitizedText;
+        res.status(201).json(messageObj);
     } catch (error) {
         console.error('Send Message Error:', error);
         res.status(500).json({ error: 'Failed to send message' });
@@ -68,7 +86,8 @@ exports.getChats = async (req, res) => {
         const formatted = conversations.map(c => ({
             doctorId: c.doctorId,
             patientId: c.patientId,
-            lastMessage: c.lastMessage,
+            // Decrypt the lastMessage preview
+            lastMessage: decryptMessage(c.lastMessage || '', c.doctorId, c.patientId),
             timestamp: c.updatedAt,
             unreadCount: role === 'doctor' ? (c.unread?.doctor || 0) : (c.unread?.patient || 0)
         }));
@@ -97,3 +116,4 @@ exports.markRead = async (req, res) => {
         res.status(500).json({ error: 'Failed to mark read' });
     }
 };
+

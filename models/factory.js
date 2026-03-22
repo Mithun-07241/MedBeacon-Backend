@@ -27,6 +27,11 @@ const userSchema = new mongoose.Schema({
     fcmUpdatedAt: { type: Date, default: null },
     isOnline: { type: Boolean, default: false },
     lastSeen: { type: Date, default: Date.now },
+    // HIPAA – account lockout & audit fields
+    loginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
+    lastLoginIp: { type: String, default: null },
 }, { timestamps: true });
 
 const appointmentSchema = new mongoose.Schema({
@@ -274,6 +279,30 @@ const aiChatSessionSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
+const labResultRowSchema = new mongoose.Schema({
+    parameter: { type: String, required: true },  // e.g. 'Haemoglobin'
+    value:     { type: String, required: true },  // e.g. '13.2'
+    unit:      { type: String, default: '' },     // e.g. 'g/dL'
+    referenceRange: { type: String, default: '' }, // e.g. '12.0–16.0'
+    flag:      { type: String, enum: ['normal', 'low', 'high', 'critical'], default: 'normal' },
+}, { _id: false });
+
+const labReportSchema = new mongoose.Schema({
+    id:           { type: String, required: true, unique: true },
+    reportNumber: { type: String, required: true, unique: true },
+    doctorId:     { type: String, ref: 'User', required: true },
+    patientId:    { type: String, ref: 'User', required: true },
+    appointmentId:{ type: String, ref: 'Appointment' },
+    testName:     { type: String, required: true },   // e.g. 'Complete Blood Count'
+    labName:      { type: String, default: '' },      // e.g. 'Metropolis Labs'
+    results:      { type: [labResultRowSchema], required: true, validate: { validator: v => v && v.length > 0, message: 'At least one result is required' } },
+    notes:        { type: String, default: '' },
+    reportDate:   { type: Date, required: true },
+    status:       { type: String, enum: ['draft', 'sent'], default: 'draft' },
+}, { timestamps: true });
+labReportSchema.index({ doctorId: 1, createdAt: -1 });
+labReportSchema.index({ patientId: 1, reportDate: -1 });
+
 const clinicProfileSchema = new mongoose.Schema({
     id: { type: String, required: true, unique: true },
     clinicName: { type: String, required: true, trim: true },
@@ -330,6 +359,7 @@ const getModels = (conn, dbName) => {
         Settings: conn.model('Settings', settingsSchema),
         AiChatSession: conn.model('AiChatSession', aiChatSessionSchema),
         ClinicProfile: conn.model('ClinicProfile', clinicProfileSchema),
+        LabReport: conn.model('LabReport', labReportSchema),
     };
 
     modelCache.set(dbName, models);

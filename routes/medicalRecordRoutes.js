@@ -6,9 +6,11 @@ const {
     deleteMedicalRecord
 } = require("../controllers/medicalRecordController");
 const authMiddleware = require("../middleware/auth");
+const { logPhiAccess } = require("../middleware/phiAuditLogger");
 
-router.get("/", authMiddleware, getMedicalRecords);
-router.post("/", authMiddleware, createMedicalRecord);
-router.delete("/:id", authMiddleware, deleteMedicalRecord);
+router.get("/", authMiddleware, logPhiAccess('medical_record'), getMedicalRecords);
+router.post("/", authMiddleware, logPhiAccess('medical_record'), createMedicalRecord);
+router.delete("/:id", authMiddleware, logPhiAccess('medical_record'), deleteMedicalRecord);
 
 module.exports = router;
+

@@ -10,15 +10,17 @@ const {
     getDoctorStats
 } = require("../controllers/appointmentController");
 const authMiddleware = require("../middleware/auth");
+const { logPhiAccess } = require("../middleware/phiAuditLogger");
 
-router.get("/", authMiddleware, getAppointments);
-router.get("/:id", authMiddleware, getAppointmentById);
-router.post("/", authMiddleware, createAppointment);
-router.patch("/:id", authMiddleware, updateAppointment);
-router.delete("/:id", authMiddleware, deleteAppointment);
+router.get("/", authMiddleware, logPhiAccess('appointment'), getAppointments);
+router.get("/:id", authMiddleware, logPhiAccess('appointment'), getAppointmentById);
+router.post("/", authMiddleware, logPhiAccess('appointment'), createAppointment);
+router.patch("/:id", authMiddleware, logPhiAccess('appointment'), updateAppointment);
+router.delete("/:id", authMiddleware, logPhiAccess('appointment'), deleteAppointment);
 
 // Rating endpoints
-router.post("/:id/rating", authMiddleware, submitRating);
+router.post("/:id/rating", authMiddleware, logPhiAccess('appointment'), submitRating);
 router.get("/doctor/:doctorId/stats", getDoctorStats);
 
 module.exports = router;
+

@@ -177,6 +177,9 @@ exports.signup = async (req, res) => {
 
 // ─── Login ──────────────────────────────────────────────────────────────────
 
+const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || '5', 10);
+const LOCK_DURATION_MS = parseInt(process.env.LOCK_DURATION_MS || String(30 * 60 * 1000), 10); // 30 min
+
 exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -188,9 +191,8 @@ exports.login = async (req, res) => {
             return res.status(400).json({ error: "Invalid email format" });
         }
 
-        // HARDCODED ADMIN LOGIN
-        if (email === 'medbeacon.test@gmail.com' && password === 'medbeacon@2025') {
-            // Try to find the first clinic for admin
+        // HARDCODED ADMIN LOGIN — development only, blocked in production
+        if (process.env.NODE_ENV !== 'production' && email === 'medbeacon.test@gmail.com' && password === 'medbeacon@2025') {
             let dbName = null;
             try {
                 const ClinicRegistry = await getRegistryModel();
@@ -242,19 +244,47 @@ exports.login = async (req, res) => {
             return res.status(401).json({ error: "Invalid credentials" });
         }
 
+        // ── Account Lockout Check (HIPAA) ────────────────────────────────────
+        if (foundUser.lockUntil && foundUser.lockUntil > Date.now()) {
+            const minutesLeft = Math.ceil((foundUser.lockUntil - Date.now()) / 60000);
+            return res.status(423).json({
+                error: `Account locked due to too many failed attempts. Try again in ${minutesLeft} minute(s).`
+            });
+        }
+
         if (foundUser.verificationStatus === 'pending') {
             return res.status(403).json({ error: "Email not verified. Please verify your email." });
         }
 
         const isMatch = await verifyPassword(password, foundUser.password);
         if (!isMatch) {
+            // Increment failed attempts
+            foundUser.loginAttempts = (foundUser.loginAttempts || 0) + 1;
+            if (foundUser.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+                foundUser.lockUntil = new Date(Date.now() + LOCK_DURATION_MS);
+                foundUser.loginAttempts = 0;
+                await foundUser.save();
+                return res.status(423).json({
+                    error: `Account locked after ${MAX_LOGIN_ATTEMPTS} failed attempts. Try again in ${Math.ceil(LOCK_DURATION_MS / 60000)} minutes.`
+                });
+            }
+            await foundUser.save();
             return res.status(401).json({ error: "Invalid credentials" });
         }
+
+        // ── Successful login: reset lockout, record audit fields ─────────────
+        foundUser.loginAttempts = 0;
+        foundUser.lockUntil = null;
+        foundUser.lastLoginAt = new Date();
+        foundUser.lastLoginIp = req.ip || req.socket?.remoteAddress || null;
+        await foundUser.save();
 
         const token = signJwt({ id: foundUser.id, role: foundUser.role, dbName: foundDbName });
 
         const userObj = foundUser.toObject();
         delete userObj.password;
+        delete userObj.loginAttempts;
+        delete userObj.lockUntil;
         userObj.dbName = foundDbName;
 
         res.json({ message: "Login successful", token, user: userObj });

@@ -9,15 +9,17 @@ const {
     deleteSession
 } = require('../controllers/aiChatController');
 const authMiddleware = require('../middleware/auth');
+const { logPhiAccess } = require('../middleware/phiAuditLogger');
 
 // Session Management
-router.get('/sessions', authMiddleware, getSessions);
-router.post('/sessions', authMiddleware, createSession);
-router.get('/sessions/:sessionId', authMiddleware, getSessionMessages);
-router.patch('/sessions/:sessionId', authMiddleware, renameSession);
-router.delete('/sessions/:sessionId', authMiddleware, deleteSession);
+router.get('/sessions', authMiddleware, logPhiAccess('ai_chat'), getSessions);
+router.post('/sessions', authMiddleware, logPhiAccess('ai_chat'), createSession);
+router.get('/sessions/:sessionId', authMiddleware, logPhiAccess('ai_chat'), getSessionMessages);
+router.patch('/sessions/:sessionId', authMiddleware, logPhiAccess('ai_chat'), renameSession);
+router.delete('/sessions/:sessionId', authMiddleware, logPhiAccess('ai_chat'), deleteSession);
 
 // Chat Message
-router.post('/message', authMiddleware, sendMessage);
+router.post('/message', authMiddleware, logPhiAccess('ai_chat'), sendMessage);
 
 module.exports = router;
+

@@ -20,8 +20,8 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ error: "Unauthorized: Invalid token signature" });
         }
 
-        // HARDCODED ADMIN SUPPORT (DEVELOPMENT ONLY)
-        if (decoded.id === 'admin-hardcoded') {
+        // HARDCODED ADMIN SUPPORT (DEVELOPMENT ONLY — blocked in production)
+        if (process.env.NODE_ENV !== 'production' && decoded.id === 'admin-hardcoded') {
             req.user = {
                 id: 'admin-hardcoded',
                 email: 'medbeacon.test@gmail.com',

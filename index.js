@@ -34,8 +34,10 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const morgan = require("morgan");
+const helmet = require("helmet");
 const connectDB = require("./config/db");
 const { initSocket } = require("./utils/socket");
+const { authLimiter, apiLimiter } = require("./middleware/rateLimiter");
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
@@ -59,6 +61,7 @@ const pharmacyRoutes = require("./routes/pharmacyRoutes");
 const inventoryRoutes = require("./routes/inventoryRoutes");
 const serviceRoutes = require("./routes/serviceRoutes");
 const clinicRoutes = require("./routes/clinicRoutes");
+const labReportRoutes = require("./routes/labReportRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -66,8 +69,47 @@ const server = http.createServer(app);
 // Connect to Database
 connectDB();
 
-// Middleware
-app.use(cors({ origin: true, credentials: true }));
+// ─── Security Middleware (HIPAA) ────────────────────────────────────────────
+
+// Helmet sets: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, etc.
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],  // allow inline styles (common in APIs)
+            imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
+            connectSrc: ["'self'"],
+            frameSrc: ["'none'"],
+        }
+    },
+    hsts: {
+        maxAge: 31536000,        // 1 year
+        includeSubDomains: true,
+        preload: true
+    },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
+
+// CORS – only allow explicitly listed origins
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, Postman in dev)
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+            return callback(null, true);
+        }
+        callback(new Error(`CORS: origin ${origin} not permitted`));
+    },
+    credentials: true
+}));
+
+// Rate Limiting (HIPAA – brute-force protection)
+app.use(apiLimiter); // global 200 req/15min
+
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 
@@ -75,7 +117,8 @@ app.use(morgan("dev"));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Mount Routes
-app.use("/api", authRoutes); // /api/signup, /api/login, /api/me
+// Apply strict auth limiter to login/OTP endpoints
+app.use("/api", authLimiter, authRoutes); // /api/signup, /api/login, /api/me
 app.use("/api", userRoutes); // /api/profile/*, /api/patients, /api/doctors
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/chat", chatRoutes);
@@ -96,11 +139,11 @@ app.use("/api/pharmacy", pharmacyRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api", serviceRoutes); // /api/services
 app.use("/api/clinic", clinicRoutes); // /api/clinic/profile
+app.use("/api/lab-reports", labReportRoutes);
 
 // Health Check
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// Error Handling
 // Error Handling
 app.use((err, req, res, next) => {
     console.error("🔥 Global Error Handler:", err.stack);
@@ -119,3 +162,4 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+

@@ -7,10 +7,12 @@ const {
     markRead
 } = require("../controllers/chatController");
 const authMiddleware = require("../middleware/auth");
+const { logPhiAccess } = require("../middleware/phiAuditLogger");
 
-router.get("/", authMiddleware, getChats);
-router.get("/:doctorId/:patientId", authMiddleware, getHistory);
-router.post("/send", authMiddleware, sendMessage);
+router.get("/", authMiddleware, logPhiAccess('chat_message'), getChats);
+router.get("/:doctorId/:patientId", authMiddleware, logPhiAccess('chat_message'), getHistory);
+router.post("/send", authMiddleware, logPhiAccess('chat_message'), sendMessage);
 router.post("/read", authMiddleware, markRead);
 
 module.exports = router;
+
