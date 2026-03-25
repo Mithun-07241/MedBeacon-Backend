@@ -7,7 +7,8 @@ const {
     updateAppointment,
     deleteAppointment,
     submitRating,
-    getDoctorStats
+    getDoctorStats,
+    getDoctorReviews
 } = require("../controllers/appointmentController");
 const authMiddleware = require("../middleware/auth");
 const { logPhiAccess } = require("../middleware/phiAuditLogger");
@@ -21,6 +22,7 @@ router.delete("/:id", authMiddleware, logPhiAccess('appointment'), deleteAppoint
 // Rating endpoints
 router.post("/:id/rating", authMiddleware, logPhiAccess('appointment'), submitRating);
 router.get("/doctor/:doctorId/stats", getDoctorStats);
+router.get("/doctor/:doctorId/reviews", getDoctorReviews);
 
 module.exports = router;
 

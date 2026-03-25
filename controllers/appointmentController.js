@@ -207,3 +207,35 @@ exports.getDoctorStats = async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch doctor stats' });
     }
 };
+
+exports.getDoctorReviews = async (req, res) => {
+    try {
+        const { Appointment } = req.models;
+        const { doctorId } = req.params;
+
+        const reviews = await Appointment.aggregate([
+            { $match: { doctorId, status: 'completed', rated: true } },
+            { $sort: { updatedAt: -1 } },
+            { $limit: 20 },
+            { $lookup: { from: 'users', localField: 'patientId', foreignField: 'id', as: 'patientUser' } },
+            { $unwind: { path: '$patientUser', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 1,
+                    rating: 1,
+                    feedback: 1,
+                    updatedAt: 1,
+                    patient: {
+                        username: '$patientUser.username',
+                        profilePicUrl: '$patientUser.profilePicUrl'
+                    }
+                }
+            }
+        ]);
+
+        res.json(reviews);
+    } catch (error) {
+        console.error('Get Doctor Reviews Error:', error);
+        res.status(500).json({ error: 'Failed to fetch doctor reviews' });
+    }
+};
