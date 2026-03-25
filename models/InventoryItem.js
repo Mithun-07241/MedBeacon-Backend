@@ -15,6 +15,10 @@ const inventoryItemSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: [
+            "Medicine",
+            "Lab Test",
+            "Procedure",
+            "Consultation",
             "Medical Equipment",
             "Office Supplies",
             "Furniture",
@@ -38,7 +42,7 @@ const inventoryItemSchema = new mongoose.Schema({
     unit: {
         type: String,
         required: true,
-        enum: ["pieces", "sets", "units", "boxes", "items"]
+        enum: ["pieces", "sets", "units", "boxes", "items", "tablets", "capsules", "ml", "bottles", "vials", "tests", "sessions"]
     },
     location: {
         type: String,
