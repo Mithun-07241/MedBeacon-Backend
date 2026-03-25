@@ -187,6 +187,16 @@ const serviceItemSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
+const alertSchema = new mongoose.Schema({
+    id: { type: String, default: uuidv4, unique: true },
+    patientId: { type: String, ref: 'User', required: true },
+    patientName: { type: String, default: '' },
+    doctorId: { type: String, ref: 'User', default: null },
+    message: { type: String, required: true },
+    severity: { type: String, required: true, enum: ['low', 'moderate', 'urgent', 'critical'], default: 'low' },
+    status: { type: String, default: 'pending', enum: ['pending', 'acknowledged', 'resolved'] },
+}, { timestamps: true });
+
 const activityLogSchema = new mongoose.Schema({
     userId: { type: String, ref: 'User' },
     action: { type: String, required: true },
@@ -360,6 +370,7 @@ const getModels = (conn, dbName) => {
         AiChatSession: conn.model('AiChatSession', aiChatSessionSchema),
         ClinicProfile: conn.model('ClinicProfile', clinicProfileSchema),
         LabReport: conn.model('LabReport', labReportSchema),
+        Alert: conn.model('Alert', alertSchema),
     };
 
     modelCache.set(dbName, models);

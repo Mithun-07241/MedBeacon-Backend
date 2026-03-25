@@ -91,17 +91,30 @@ app.use(helmet({
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
 
-// CORS – only allow explicitly listed origins
+// CORS – allow explicitly listed origins + pattern matching for *.vercel.app previews
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : ['http://localhost:5173', 'http://localhost:3000'];
 
+// Additional wildcard domains always trusted (edit here to add more)
+const TRUSTED_PATTERNS = [
+    /^https:\/\/.*\.vercel\.app$/,      // all Vercel preview deployments
+    /^https:\/\/.*\.onrender\.com$/,    // Render previews / services calling each other
+    /^http:\/\/localhost:\d+$/,         // any localhost port in dev
+];
+
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, Postman in dev)
-        if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-            return callback(null, true);
-        }
+        // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+        if (!origin) return callback(null, true);
+
+        // Exact match
+        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+
+        // Pattern match
+        if (TRUSTED_PATTERNS.some(re => re.test(origin))) return callback(null, true);
+
+        console.warn(`CORS blocked: ${origin}`);
         callback(new Error(`CORS: origin ${origin} not permitted`));
     },
     credentials: true
