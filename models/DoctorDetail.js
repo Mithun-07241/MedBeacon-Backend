@@ -70,6 +70,18 @@ const doctorDetailSchema = new mongoose.Schema({
         enum: ["available", "busy", "unavailable"],
         default: "available"
     },
+    weeklySchedule: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {
+            Mon: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Tue: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Wed: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Thu: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Fri: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Sat: { open: false, start: '', end: '' },
+            Sun: { open: false, start: '', end: '' }
+        }
+    },
     expertise: {
         type: [String]
     },

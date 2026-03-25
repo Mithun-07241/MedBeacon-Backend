@@ -163,7 +163,8 @@ exports.getDoctors = async (req, res) => {
                     bio: '$details.bio', education: '$details.education',
                     graduationYear: '$details.graduationYear', certifications: '$details.certifications',
                     hospital: '$details.hospital', languages: '$details.languages',
-                    availability: '$details.availability', expertise: '$details.expertise'
+                    availability: '$details.availability', expertise: '$details.expertise',
+                    weeklySchedule: '$details.weeklySchedule'
                 }
             }
         ]);
