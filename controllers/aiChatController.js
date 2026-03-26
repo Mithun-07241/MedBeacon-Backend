@@ -89,136 +89,129 @@ function generateSessionTitle(firstMessage) {
 }
 
 /**
- * Extract booking state from the full conversation history.
- * Scans every message to accumulate doctor/date/time/reason.
- * The state is the source of truth – the LLM only needs to ask for what is still missing.
+ * Update booking state by extracting NEW info from the current user message only,
+ * merging it onto the already-persisted state from session.bookingState.
+ * This is reliable because the persisted state is the source of truth —
+ * we never re-derive from history which is fragile.
+ *
+ * @param {object} existing - session.bookingState from DB (doctor/date/time/reason)
+ * @param {string} currentMessage - the user's latest message
+ * @param {object} dbContext - { doctors: [...] }
+ * @returns {object} updated state
  */
-function extractBookingState(messages, currentMessage, dbContext) {
-    const state = { doctor: null, date: null, time: null, reason: null };
+function updateBookingState(existing, currentMessage, dbContext) {
+    // Start from the persisted state
+    const state = {
+        doctor: existing?.doctor || null,
+        date: existing?.date || null,
+        time: existing?.time || null,
+        reason: existing?.reason || null,
+    };
+
     const doctors = dbContext.doctors || [];
+    const text = currentMessage;
+    const t = text.toLowerCase();
 
-    // Helper: parse a date string fragment into YYYY-MM-DD
-    const parseDate = (text) => {
-        const t = text.toLowerCase();
-        const today = new Date();
-        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-        if (/\btomorrow\b|tmrw|tom\b/.test(t)) return tomorrow.toISOString().split('T')[0];
-        if (/\btoday\b/.test(t)) return today.toISOString().split('T')[0];
-        // YYYY-MM-DD
-        const iso = t.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-        if (iso) return iso[1];
-        // DD/MM/YYYY or DD-MM-YYYY
-        const dmy = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
-        if (dmy) {
-            const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
-            if (!isNaN(d)) return d.toISOString().split('T')[0];
-        }
-        // "March 27" / "27 March"
-        const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
-        const monthMatch = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i) ||
-                           t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
-        if (monthMatch) {
-            const day = monthMatch[1] || monthMatch[2];
-            const month = (monthMatch[2] || monthMatch[1]).toLowerCase();
-            const monthIdx = months.indexOf(month);
-            if (monthIdx >= 0) {
-                const yr = today.getFullYear();
-                return `${yr}-${String(monthIdx + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-            }
-        }
-        return null;
-    };
-
-    // Helper: parse a time string to HH:MM AM/PM
-    const parseTime = (text) => {
-        const t = text.toLowerCase();
-        // HH:MM
-        const hhmm = t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
-        if (hhmm) {
-            let h = parseInt(hhmm[1]);
-            const m = hhmm[2];
-            const ampm = hhmm[3];
-            if (ampm) {
-                if (ampm.toLowerCase() === 'pm' && h < 12) h += 12;
-                if (ampm.toLowerCase() === 'am' && h === 12) h = 0;
-            }
-            const period = h >= 12 ? 'PM' : 'AM';
-            const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-            return `${String(h12).padStart(2,'0')}:${m} ${period}`;
-        }
-        // "2pm" / "14"
-        const simple = t.match(/\b(\d{1,2})\s*(am|pm)\b/i);
-        if (simple) {
-            let h = parseInt(simple[1]);
-            const p = simple[2].toLowerCase();
-            if (p === 'pm' && h < 12) h += 12;
-            if (p === 'am' && h === 12) h = 0;
-            const period = h >= 12 ? 'PM' : 'AM';
-            const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-            return `${String(h12).padStart(2,'0')}:00 ${period}`;
-        }
-        // "anytime" → 10:00 AM
-        if (/\bany\s*time\b|\banytime\b/.test(t)) return '10:00 AM';
-        return null;
-    };
-
-    // Helper: match a doctor name from text
-    const findDoctor = (text) => {
-        if (!doctors.length) return null;
-        const t = text.toLowerCase();
-        return doctors.find(d => {
+    // ── Doctor ─────────────────────────────────────────────────────────
+    if (!state.doctor) {
+        // Direct name match
+        const matched = doctors.find(d => {
             const name = d.name.toLowerCase().replace(/^dr\.?\s*/i, '');
-            const parts = name.split(/\s+/);
-            return parts.some(p => p.length > 2 && t.includes(p));
-        }) || null;
-    };
-
-    // Scan all historical messages + current message
-    const allMessages = [
-        ...messages.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: currentMessage }
-    ];
-
-    for (const msg of allMessages) {
-        if (msg.role !== 'user') continue;
-        const text = msg.content;
-
-        if (!state.doctor) {
-            const doc = findDoctor(text);
-            if (doc) state.doctor = { id: doc.id, name: doc.name };
+            return name.split(/\s+/).some(part => part.length > 2 && t.includes(part));
+        });
+        if (matched) {
+            state.doctor = { id: matched.id, name: matched.name };
         }
-
-        // If only one doctor exists and user says "yes" / "him" / "her" / confirms
-        if (!state.doctor && doctors.length === 1 && /\b(yes|yeah|ok|sure|him|her|that.one|confirm|book)\b/i.test(text)) {
+        // Confirmation when only one doctor exists ("yes", "him", "sure", "ok", "that one", "book")
+        if (!state.doctor && doctors.length === 1 &&
+            /\b(yes|yeah|yep|ok|okay|sure|him|her|that\b|book|confirm|mithun|them)\b/i.test(t)) {
             state.doctor = { id: doctors[0].id, name: doctors[0].name };
         }
+        // If there are multiple doctors and user says "yes" / confirms, pick the one most recently mentioned by AI
+        // (We can't know which, so only do this for single-doctor clinics)
+    }
 
-        if (!state.date) {
-            const d = parseDate(text);
-            if (d) state.date = d;
-        }
-
-        if (!state.time) {
-            const t = parseTime(text);
-            if (t) state.time = t;
-        }
-
-        // Reason: capture after "for", "because", "reason:", or common symptom words
-        if (!state.reason) {
-            const reasonPatterns = [
-                /\bfor\s+(?:a\s+|an\s+|my\s+)?([a-z][a-z\s]{2,40}?)(?:\s*\.|,|$)/i,
-                /\breason[:\s]+([a-z][a-z\s]{2,40?}?)(?:\s*\.|,|$)/i,
-                /\b(headache|fever|cold|cough|pain|checkup|check.?up|consultation|follow.?up|chest\s+pain|back\s+pain|stomach|nausea|dizziness|injury|fracture|rash|allergy|diabetes|hypertension|stress|anxiety|depression)\b/i,
-            ];
-            for (const pat of reasonPatterns) {
-                const m = text.match(pat);
-                if (m && m[1] && m[1].trim().length > 1) {
-                    const candidate = m[1].trim().toLowerCase();
-                    // Avoid capturing date/time/names as reason
-                    if (!/\d{4}|\btomorrow\b|\btoday\b|pmrw/.test(candidate)) {
-                        state.reason = candidate;
-                        break;
+    // ── Date ───────────────────────────────────────────────────────────
+    if (!state.date) {
+        const today = new Date();
+        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+        if (/\btomorrow\b|tmrw|\btom\b/.test(t)) {
+            state.date = tomorrow.toISOString().split('T')[0];
+        } else if (/\btoday\b/.test(t)) {
+            state.date = today.toISOString().split('T')[0];
+        } else {
+            const iso = t.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+            if (iso) {
+                state.date = iso[1];
+            } else {
+                const dmy = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+                if (dmy) {
+                    const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
+                    if (!isNaN(d)) state.date = d.toISOString().split('T')[0];
+                } else {
+                    const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+                    const mm = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i) ||
+                               t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
+                    if (mm) {
+                        const day = mm[1] || mm[2];
+                        const mon = (mm[2] || mm[1]).toLowerCase();
+                        const idx = months.indexOf(mon);
+                        if (idx >= 0) state.date = `${today.getFullYear()}-${String(idx + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                     }
+                }
+            }
+        }
+    }
+
+    // ── Time ───────────────────────────────────────────────────────────
+    if (!state.time) {
+        if (/\bany\s*time\b|\banytime\b/i.test(t)) {
+            state.time = '10:00 AM';
+        } else {
+            // HH:MM with optional AM/PM
+            const hhmm = t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+            if (hhmm) {
+                let h = parseInt(hhmm[1]);
+                const m = hhmm[2];
+                const ampm = hhmm[3];
+                if (ampm) {
+                    if (ampm.toLowerCase() === 'pm' && h < 12) h += 12;
+                    if (ampm.toLowerCase() === 'am' && h === 12) h = 0;
+                }
+                // 14:30 without am/pm means 24h
+                const period = h >= 12 ? 'PM' : 'AM';
+                const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+                state.time = `${String(h12).padStart(2,'0')}:${m} ${period}`;
+            } else {
+                // "2pm", "2 pm"
+                const simple = t.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+                if (simple) {
+                    let h = parseInt(simple[1]);
+                    const p = simple[2].toLowerCase();
+                    if (p === 'pm' && h < 12) h += 12;
+                    if (p === 'am' && h === 12) h = 0;
+                    const period = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+                    state.time = `${String(h12).padStart(2,'0')}:00 ${period}`;
+                }
+            }
+        }
+    }
+
+    // ── Reason ─────────────────────────────────────────────────────────
+    if (!state.reason) {
+        // Common symptom keywords (checked first — most reliable)
+        const symptomMatch = t.match(/\b(headache|fever|cold|flu|cough|pain|checkup|check.?up|consultation|follow.?up|chest pain|back pain|stomach|nausea|dizziness|vertigo|injury|fracture|rash|allergy|diabetes|hypertension|stress|anxiety|depression|fatigue|insomnia|migraine|sore throat|vomiting|diarrhea)\b/i);
+        if (symptomMatch) {
+            state.reason = symptomMatch[1].toLowerCase();
+        } else {
+            // "for X" pattern
+            const forMatch = t.match(/\bfor\s+(?:a\s+|an\s+|my\s+)?([a-z][a-z\s]{2,50}?)(?:\s*[.,!?]|$)/i);
+            if (forMatch && forMatch[1]) {
+                const candidate = forMatch[1].trim();
+                // Reject if it's a date/time word
+                if (!/\b(tomorrow|today|tmrw|january|february|march|april|may|june|july|august|september|october|november|december)\b|\d{4}/.test(candidate)) {
+                    state.reason = candidate;
                 }
             }
         }
@@ -226,6 +219,7 @@ function extractBookingState(messages, currentMessage, dbContext) {
 
     return state;
 }
+
 
 async function executeToolCall(toolCall, userId, models) {
     const { name, arguments: args } = toolCall.function;
@@ -390,18 +384,26 @@ exports.sendMessage = async (req, res) => {
             session = await AiChatSession.findOne({ sessionId, userId });
             if (!session) return res.status(404).json({ error: 'Session not found' });
         } else {
-            session = await AiChatSession.create({ userId, title: generateSessionTitle(sanitizedMessage), messages: [] });
+            session = await AiChatSession.create({ userId, title: generateSessionTitle(sanitizedMessage), messages: [], bookingState: { doctor: null, date: null, time: null, reason: null } });
         }
 
         const { loadDatabaseContext } = require('../services/dbContextLoader');
         const dbContext = await loadDatabaseContext(req.models);
 
-        // ─── Server-side booking state extraction ────────────────────────
         const userRole = req.user.role || 'patient';
-        const historyMessages = session.messages.slice(-30);
+
+        // ─── Incremental booking state update (merge onto DB-persisted state) ──
+        // Load existing persisted state (never re-derive from scratch)
+        const existingState = session.bookingState || { doctor: null, date: null, time: null, reason: null };
         const bookingState = userRole === 'patient'
-            ? extractBookingState(historyMessages, sanitizedMessage, dbContext)
+            ? updateBookingState(existingState, sanitizedMessage, dbContext)
             : { doctor: null, date: null, time: null, reason: null };
+
+        // Persist the updated state immediately so it survives regardless of what happens next
+        if (userRole === 'patient') {
+            session.bookingState = bookingState;
+            session.markModified('bookingState');
+        }
 
         // ─── AUTO-FIRE: if all 4 fields are ready, skip LLM and book directly ─
         if (userRole === 'patient' &&
@@ -426,8 +428,14 @@ exports.sendMessage = async (req, res) => {
                     `**Reason:** ${apt.reason}\n` +
                     `**Status:** Pending confirmation\n\n` +
                     `The doctor will confirm your appointment shortly.`;
+                // Reset booking state after a successful booking
+                session.bookingState = { doctor: null, date: null, time: null, reason: null };
+                session.markModified('bookingState');
             } else {
                 confirmMsg = `I wasn't able to book that appointment. ${bookResult.error || 'Please try again.'}`;
+                // Reset so user can try again
+                session.bookingState = { doctor: null, date: null, time: null, reason: null };
+                session.markModified('bookingState');
             }
 
             session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
@@ -438,7 +446,7 @@ exports.sendMessage = async (req, res) => {
         }
 
         // ─── Normal LLM flow ─────────────────────────────────────────────
-        const conversationHistory = historyMessages.map(msg => ({ role: msg.role, content: msg.content }));
+        const conversationHistory = session.messages.slice(-20).map(msg => ({ role: msg.role, content: msg.content }));
         conversationHistory.push({ role: 'user', content: sanitizedMessage });
 
         let aiResponse = await ollamaService.processMessage(conversationHistory, userRole, dbContext, bookingState);
@@ -479,4 +487,5 @@ exports.sendMessage = async (req, res) => {
 };
 
 module.exports = exports;
+
 

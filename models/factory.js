@@ -287,7 +287,13 @@ const aiChatSessionSchema = new mongoose.Schema({
     title: { type: String, default: 'New Chat' },
     messages: [{ role: String, content: String, timestamp: { type: Date, default: Date.now } }],
     isActive: { type: Boolean, default: true },
+    // Persisted booking state - accumulated across turns so it's never re-derived from scratch
+    bookingState: {
+        type: mongoose.Schema.Types.Mixed,
+        default: { doctor: null, date: null, time: null, reason: null }
+    },
 }, { timestamps: true });
+
 
 const labResultRowSchema = new mongoose.Schema({
     parameter: { type: String, required: true },  // e.g. 'Haemoglobin'
