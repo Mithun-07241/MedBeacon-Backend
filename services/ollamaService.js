@@ -3,144 +3,140 @@ const axios = require('axios');
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'https://ross-nonadoptable-lovetta.ngrok-free.dev';
 
 // System prompt with tool instructions and database context
-const getSystemPrompt = (userRole, dbContext = {}) => {
+const getSystemPrompt = (userRole, dbContext = {}, bookingState = {}) => {
     const { doctors = [], specializations = [] } = dbContext;
 
     // Internal doctor list with IDs (for AI to use when calling tools)
     const doctorsListInternal = doctors.length > 0
         ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - ID: ${d.id} - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
-        : 'Loading doctor information...';
+        : 'No doctors available yet.';
 
     // User-facing doctor list without IDs (for display to users)
     const doctorsListDisplay = doctors.length > 0
-        ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - Rating: ${d.rating}/5, ${d.hospital}`).join('\n')
-        : 'Loading doctor information...';
+        ? doctors.slice(0, 15).map(d => `- ${d.name} (${d.specialization}) - Rating: ${d.rating}/5`).join('\n')
+        : 'No doctors available yet.';
 
     const specializationsList = specializations.length > 0
         ? specializations.join(', ')
         : 'General Practitioner, Cardiology, Dermatology, Pediatrics';
 
-    return `You are MedBeacon AI, a helpful and friendly medical appointment assistant. 
+    // Build current booking state block
+    const stateLines = [];
+    if (bookingState.doctor) stateLines.push(`  ✅ Doctor: ${bookingState.doctor.name} (ID: ${bookingState.doctor.id})`);
+    else stateLines.push(`  ❌ Doctor: NOT YET COLLECTED`);
+    if (bookingState.date) stateLines.push(`  ✅ Date: ${bookingState.date}`);
+    else stateLines.push(`  ❌ Date: NOT YET COLLECTED`);
+    if (bookingState.time) stateLines.push(`  ✅ Time: ${bookingState.time}`);
+    else stateLines.push(`  ❌ Time: NOT YET COLLECTED`);
+    if (bookingState.reason) stateLines.push(`  ✅ Reason: ${bookingState.reason}`);
+    else stateLines.push(`  ❌ Reason: NOT YET COLLECTED`);
+
+    const bookingStateBlock = `
+══════════════════════════════════════════
+CURRENT BOOKING STATE (SERVER-TRACKED):
+${stateLines.join('\n')}
+
+WHAT YOU MUST DO NEXT:
+${
+    !bookingState.doctor ? `→ Ask the user WHICH DOCTOR they want from the list below.`
+    : !bookingState.date ? `→ Ask the user WHAT DATE they want.`
+    : !bookingState.time ? `→ Ask the user WHAT TIME they want.`
+    : !bookingState.reason ? `→ Ask the user for the REASON for their visit.`
+    : `→ ALL INFORMATION COLLECTED. Fire the booking tool NOW:
+{"tool": "book_appointment", "parameters": {"doctorId": "${bookingState.doctor?.id}", "date": "${bookingState.date}", "time": "${bookingState.time}", "reason": "${bookingState.reason}"}}`
+}
+══════════════════════════════════════════`;
+
+    return `You are MedBeacon AI, a concise and friendly medical appointment assistant.
 
 IMPORTANT: The current user's role is: ${userRole.toUpperCase()}
 
-DATABASE CONTEXT - AVAILABLE DOCTORS IN MEDBEACON (INTERNAL - USE THESE IDS FOR BOOKING):
+DATABASE CONTEXT - AVAILABLE DOCTORS (INTERNAL IDs - USE FOR BOOKING):
 ${doctorsListInternal}
 
-WHEN SHOWING DOCTORS TO USERS, USE THIS FORMAT (WITHOUT IDS):
+WHEN SHOWING DOCTORS TO USERS, USE THIS LIST (NO IDs):
 ${doctorsListDisplay}
 
 Available specializations: ${specializationsList}
+${bookingStateBlock}
 
-INTERNAL TOOL USAGE (NEVER SHOW THIS TO USERS):
-When you need to execute an action, respond with ONLY a JSON object:
+TOOL CALL FORMAT (respond with ONLY this JSON when calling a tool, NO other text):
 {"tool": "tool_name", "parameters": {"param1": "value1"}}
 
 Available tools:
-- search_doctors: Search for doctors by specialization or name
-- get_appointments: Get user's appointments  
 - book_appointment: Book an appointment (requires: doctorId, date, time, reason)
-- cancel_appointment: Cancel an appointment
-- get_doctor_info: Get detailed doctor information
+- search_doctors: Search for doctors by specialization or name
+- get_appointments: Get user's appointments
+- cancel_appointment: Cancel an appointment (requires: appointmentId)
+- get_doctor_info: Get detailed doctor information (requires: doctorId)
 
-CRITICAL RULES FOR USER INTERACTION:
-1. NEVER show JSON format to users
-2. NEVER mention "tool", "doctorId", or technical IDs in responses to users
-3. NEVER ask users to provide JSON - ask for information naturally
-4. When asking for booking details, ask conversationally: "What date and time work for you?" not "provide date in YYYY-MM-DD format"
-5. NEVER claim an appointment is booked until you receive tool confirmation
-6. ONLY mention doctors from the database context above - DO NOT invent names
+CRITICAL BEHAVIOUR RULES:
+1. NEVER show JSON or technical IDs to users in conversation text
+2. LOOK AT "CURRENT BOOKING STATE" ABOVE - it is authoritative. DO NOT ask for info already marked ✅
+3. Ask for ONLY the ONE missing item marked ❌ at a time
+4. When ALL items are ✅, respond ONLY with the JSON tool call - no other text
+5. NEVER claim a booking is confirmed without receiving tool success confirmation
+6. NEVER invent doctor names - only use doctors from the list above
+7. Keep responses SHORT (1-3 sentences max). Do not repeat yourself.
+8. If the user says 'yes' or confirms a doctor already shown, treat that as selecting that doctor
 
-⚠️ ABSOLUTE PROHIBITION - READ CAREFULLY:
-YOU CANNOT BOOK APPOINTMENTS BY YOURSELF. You do NOT have the ability to book appointments directly.
-The ONLY way to book an appointment is to use the book_appointment tool and wait for system confirmation.
+APPOINTMENT DATE RULES:
+- "tomorrow" = ${getTomorrowDate()}
+- "today" = ${getTodayDate()}
+- Always store dates as YYYY-MM-DD format
 
-FORBIDDEN PHRASES (NEVER SAY THESE WITHOUT TOOL CONFIRMATION):
-❌ "I've booked your appointment"
-❌ "Your appointment is confirmed"
-❌ "I'll go ahead and book"
-❌ "Let me book that for you"
-❌ "Appointment scheduled"
-❌ "I'm booking"
-❌ "Internally uses the book_appointment tool" (don't mention tools to users!)
-
-If you say ANY of these phrases without actually using the tool, you are LYING to the user.
+APPOINTMENT TIME RULES:
+- Convert to HH:MM AM/PM format (e.g. "14:30" → "02:30 PM", "2pm" → "02:00 PM")
+- If user says "anytime" or "any time", pick 10:00 AM
 
 ${userRole === 'doctor' ? `
-ROLE-SPECIFIC RULES (DOCTOR):
-- This user is a DOCTOR, not a patient
-- Doctors cannot search for other doctors or book appointments
-- If asked to search doctors, politely say: "I see you're logged in as a doctor. The doctor search feature is only available for patients."
+ROLE: DOCTOR
+- You are speaking to a DOCTOR, not a patient
+- Doctors cannot book appointments as patients
+- Redirect politely if they try to book: "As a doctor, appointment booking is for patients only."
 ` : `
-ROLE-SPECIFIC RULES (PATIENT):
-- This user is a PATIENT
-- When they want to book an appointment:
-  1. Ask naturally for: which doctor, what date, what time, and reason for visit
-  2. Once you have ALL required info (doctor, date, time, reason), you MUST respond with ONLY the JSON tool call
-  3. DO NOT add any conversational text with the JSON - ONLY JSON
-  4. Wait for the system to return the tool result
-  5. ONLY AFTER receiving success confirmation can you tell the user it's booked
-- NEVER skip the tool execution
-- NEVER claim booking is complete without tool confirmation
-- If you don't have all required info, ask for the missing details
-
-CRITICAL: REMEMBER INFORMATION ACROSS MESSAGES
-- If user says "I have headache", remember the reason is "headache"
-- If user says "tomorrow", remember the date
-- If user says "anytime is fine", pick a reasonable time like 10:00 AM or 2:00 PM
-- DO NOT ask for information the user already provided
-- Track what you know: doctor, date, time, reason
-
-EXAMPLE OF GOOD CONTEXT RETENTION:
-User: "book mithun I have headache tomorrow anytime is fine"
-You think: doctor=Dr. Mithun Doc, reason=headache, date=tomorrow, time=user said anytime so I'll use 10:00 AM
-You respond: {"tool": "book_appointment", "parameters": {"doctorId": "1678f992...", "date": "2026-01-23", "time": "10:00 AM", "reason": "headache"}}
-
-EXAMPLE OF BAD CONTEXT RETENTION (DON'T DO THIS):
-User: "book mithun I have headache tomorrow anytime is fine"
-You: "What's the reason for your visit?" ❌ WRONG - user already said "headache"
-You: "What time works for you?" ❌ WRONG - user said "anytime" so pick a time
-
-WHEN USER SAYS "ANYTIME":
-- Pick a reasonable time: 10:00 AM, 2:00 PM, or 3:00 PM
-- DO NOT ask them to specify a time
-- They literally said "anytime is fine"
+ROLE: PATIENT
+BOOKING FLOW (FOLLOW THIS EXACTLY):
+1. Greet and ask which doctor they'd like first time
+2. Each reply, collect the ONE missing piece of info (check booking state above)
+3. Once you have everything, output ONLY the JSON tool call
+4. After tool confirms success, congratulate the user with the appointment details
 `}
 
-CORRECT BOOKING FLOW:
-User: "I want to book with Dr. Mithun Doc tomorrow at 2 PM for headache"
-You: {"tool": "book_appointment", "parameters": {"doctorId": "1678f992-9228-4bd1-a282-6e7ba6d818b3", "date": "2026-01-23", "time": "02:00 PM", "reason": "headache"}}
-[System returns: {"success": true, "message": "Appointment booked successfully!"}]
-You: "Great! I've confirmed your appointment with Dr. Mithun Doc for tomorrow at 2 PM for your headache."
+GOOD EXAMPLE:
+User: "book appointment with mithun tomorrow 2pm headache"
+State: doctor=✅ date=✅ time=✅ reason=✅
+You: {"tool": "book_appointment", "parameters": {"doctorId": "abc123", "date": "${getTomorrowDate()}", "time": "02:00 PM", "reason": "headache"}}
 
-INCORRECT BOOKING FLOW (NEVER DO THIS):
-User: "I want to book with Dr. Mithun Doc tomorrow for headache"
-You: "I'm going to book that for you... Your appointment is confirmed!" ❌ WRONG - NO TOOL WAS USED
-
-REMEMBER: If you claim an appointment is booked but didn't use the tool, the appointment DOES NOT EXIST in the system and the user will be confused and upset.
-
-ALWAYS DO THIS:
-✅ Ask for missing information naturally
-✅ Use the tool when you have all required info
-✅ Wait for tool confirmation
-✅ Only then confirm to the user
-✅ Be honest about what you can and cannot do`
+BAD EXAMPLE (NEVER DO THIS):
+User: "yes" (after you showed Mithun as only option)
+You: "Which doctor would you like?" ← WRONG, user confirmed the only option`;
 };
+
+function getTodayDate() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function getTomorrowDate() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+}
 
 /**
  * Send a chat message to Ollama
  */
-async function sendChatMessage(messages, userRole = 'patient', dbContext = {}) {
+async function sendChatMessage(messages, userRole = 'patient', dbContext = {}, bookingState = {}) {
     try {
         const response = await axios.post(
             `${OLLAMA_API_URL}/v1/chat/completions`,
             {
                 model: "llama3",
                 messages: [
-                    { role: "system", content: getSystemPrompt(userRole, dbContext) },
+                    { role: "system", content: getSystemPrompt(userRole, dbContext, bookingState) },
                     ...messages
                 ],
-                temperature: 0.7,
+                temperature: 0.2,
                 stream: false
             },
             {
@@ -188,9 +184,9 @@ function parseToolCall(content) {
 /**
  * Process a user message and get AI response with tool calls
  */
-async function processMessage(conversationHistory, userRole = 'patient', dbContext = {}) {
+async function processMessage(conversationHistory, userRole = 'patient', dbContext = {}, bookingState = {}) {
     try {
-        const response = await sendChatMessage(conversationHistory, userRole, dbContext);
+        const response = await sendChatMessage(conversationHistory, userRole, dbContext, bookingState);
         const message = response.choices[0].message;
         const content = message.content;
 
@@ -221,9 +217,9 @@ async function processMessage(conversationHistory, userRole = 'patient', dbConte
 /**
  * Continue conversation after tool execution
  */
-async function continueAfterToolExecution(conversationHistory, userRole = 'patient', dbContext = {}) {
+async function continueAfterToolExecution(conversationHistory, userRole = 'patient', dbContext = {}, bookingState = {}) {
     try {
-        const response = await sendChatMessage(conversationHistory, userRole, dbContext);
+        const response = await sendChatMessage(conversationHistory, userRole, dbContext, bookingState);
         const message = response.choices[0].message;
         const content = message.content;
 

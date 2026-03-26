@@ -88,6 +88,145 @@ function generateSessionTitle(firstMessage) {
     return (title.charAt(0).toUpperCase() + title.slice(1)) || 'New Chat';
 }
 
+/**
+ * Extract booking state from the full conversation history.
+ * Scans every message to accumulate doctor/date/time/reason.
+ * The state is the source of truth – the LLM only needs to ask for what is still missing.
+ */
+function extractBookingState(messages, currentMessage, dbContext) {
+    const state = { doctor: null, date: null, time: null, reason: null };
+    const doctors = dbContext.doctors || [];
+
+    // Helper: parse a date string fragment into YYYY-MM-DD
+    const parseDate = (text) => {
+        const t = text.toLowerCase();
+        const today = new Date();
+        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+        if (/\btomorrow\b|tmrw|tom\b/.test(t)) return tomorrow.toISOString().split('T')[0];
+        if (/\btoday\b/.test(t)) return today.toISOString().split('T')[0];
+        // YYYY-MM-DD
+        const iso = t.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+        if (iso) return iso[1];
+        // DD/MM/YYYY or DD-MM-YYYY
+        const dmy = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
+        if (dmy) {
+            const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`);
+            if (!isNaN(d)) return d.toISOString().split('T')[0];
+        }
+        // "March 27" / "27 March"
+        const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+        const monthMatch = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i) ||
+                           t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
+        if (monthMatch) {
+            const day = monthMatch[1] || monthMatch[2];
+            const month = (monthMatch[2] || monthMatch[1]).toLowerCase();
+            const monthIdx = months.indexOf(month);
+            if (monthIdx >= 0) {
+                const yr = today.getFullYear();
+                return `${yr}-${String(monthIdx + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            }
+        }
+        return null;
+    };
+
+    // Helper: parse a time string to HH:MM AM/PM
+    const parseTime = (text) => {
+        const t = text.toLowerCase();
+        // HH:MM
+        const hhmm = t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+        if (hhmm) {
+            let h = parseInt(hhmm[1]);
+            const m = hhmm[2];
+            const ampm = hhmm[3];
+            if (ampm) {
+                if (ampm.toLowerCase() === 'pm' && h < 12) h += 12;
+                if (ampm.toLowerCase() === 'am' && h === 12) h = 0;
+            }
+            const period = h >= 12 ? 'PM' : 'AM';
+            const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+            return `${String(h12).padStart(2,'0')}:${m} ${period}`;
+        }
+        // "2pm" / "14"
+        const simple = t.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+        if (simple) {
+            let h = parseInt(simple[1]);
+            const p = simple[2].toLowerCase();
+            if (p === 'pm' && h < 12) h += 12;
+            if (p === 'am' && h === 12) h = 0;
+            const period = h >= 12 ? 'PM' : 'AM';
+            const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+            return `${String(h12).padStart(2,'0')}:00 ${period}`;
+        }
+        // "anytime" → 10:00 AM
+        if (/\bany\s*time\b|\banytime\b/.test(t)) return '10:00 AM';
+        return null;
+    };
+
+    // Helper: match a doctor name from text
+    const findDoctor = (text) => {
+        if (!doctors.length) return null;
+        const t = text.toLowerCase();
+        return doctors.find(d => {
+            const name = d.name.toLowerCase().replace(/^dr\.?\s*/i, '');
+            const parts = name.split(/\s+/);
+            return parts.some(p => p.length > 2 && t.includes(p));
+        }) || null;
+    };
+
+    // Scan all historical messages + current message
+    const allMessages = [
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: currentMessage }
+    ];
+
+    for (const msg of allMessages) {
+        if (msg.role !== 'user') continue;
+        const text = msg.content;
+
+        if (!state.doctor) {
+            const doc = findDoctor(text);
+            if (doc) state.doctor = { id: doc.id, name: doc.name };
+        }
+
+        // If only one doctor exists and user says "yes" / "him" / "her" / confirms
+        if (!state.doctor && doctors.length === 1 && /\b(yes|yeah|ok|sure|him|her|that.one|confirm|book)\b/i.test(text)) {
+            state.doctor = { id: doctors[0].id, name: doctors[0].name };
+        }
+
+        if (!state.date) {
+            const d = parseDate(text);
+            if (d) state.date = d;
+        }
+
+        if (!state.time) {
+            const t = parseTime(text);
+            if (t) state.time = t;
+        }
+
+        // Reason: capture after "for", "because", "reason:", or common symptom words
+        if (!state.reason) {
+            const reasonPatterns = [
+                /\bfor\s+(?:a\s+|an\s+|my\s+)?([a-z][a-z\s]{2,40}?)(?:\s*\.|,|$)/i,
+                /\breason[:\s]+([a-z][a-z\s]{2,40?}?)(?:\s*\.|,|$)/i,
+                /\b(headache|fever|cold|cough|pain|checkup|check.?up|consultation|follow.?up|chest\s+pain|back\s+pain|stomach|nausea|dizziness|injury|fracture|rash|allergy|diabetes|hypertension|stress|anxiety|depression)\b/i,
+            ];
+            for (const pat of reasonPatterns) {
+                const m = text.match(pat);
+                if (m && m[1] && m[1].trim().length > 1) {
+                    const candidate = m[1].trim().toLowerCase();
+                    // Avoid capturing date/time/names as reason
+                    if (!/\d{4}|\btomorrow\b|\btoday\b|pmrw/.test(candidate)) {
+                        state.reason = candidate;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    return state;
+}
+
 async function executeToolCall(toolCall, userId, models) {
     const { name, arguments: args } = toolCall.function;
     const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
@@ -257,11 +396,52 @@ exports.sendMessage = async (req, res) => {
         const { loadDatabaseContext } = require('../services/dbContextLoader');
         const dbContext = await loadDatabaseContext(req.models);
 
-        const conversationHistory = session.messages.slice(-20).map(msg => ({ role: msg.role, content: msg.content }));
+        // ─── Server-side booking state extraction ────────────────────────
+        const userRole = req.user.role || 'patient';
+        const historyMessages = session.messages.slice(-30);
+        const bookingState = userRole === 'patient'
+            ? extractBookingState(historyMessages, sanitizedMessage, dbContext)
+            : { doctor: null, date: null, time: null, reason: null };
+
+        // ─── AUTO-FIRE: if all 4 fields are ready, skip LLM and book directly ─
+        if (userRole === 'patient' &&
+            bookingState.doctor && bookingState.date && bookingState.time && bookingState.reason) {
+
+            console.log('[AI Chat] Auto-firing book_appointment from state:', bookingState);
+
+            const bookResult = await bookAppointment(
+                { doctorId: bookingState.doctor.id, date: bookingState.date, time: bookingState.time, reason: bookingState.reason },
+                userId,
+                req.models
+            );
+
+            let confirmMsg;
+            if (bookResult.success) {
+                const apt = bookResult.appointment;
+                confirmMsg = `✅ Your appointment has been booked!\n\n` +
+                    `**Doctor:** ${apt.doctorName}\n` +
+                    `**Specialization:** ${apt.specialization}\n` +
+                    `**Date:** ${apt.date}\n` +
+                    `**Time:** ${apt.time}\n` +
+                    `**Reason:** ${apt.reason}\n` +
+                    `**Status:** Pending confirmation\n\n` +
+                    `The doctor will confirm your appointment shortly.`;
+            } else {
+                confirmMsg = `I wasn't able to book that appointment. ${bookResult.error || 'Please try again.'}`;
+            }
+
+            session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
+            session.messages.push({ role: 'assistant', content: confirmMsg, timestamp: new Date(), toolsExecuted: ['book_appointment'] });
+            await session.save();
+
+            return res.json({ message: confirmMsg, sessionId: session.sessionId, toolsExecuted: ['book_appointment'] });
+        }
+
+        // ─── Normal LLM flow ─────────────────────────────────────────────
+        const conversationHistory = historyMessages.map(msg => ({ role: msg.role, content: msg.content }));
         conversationHistory.push({ role: 'user', content: sanitizedMessage });
 
-        const userRole = req.user.role || 'patient';
-        let aiResponse = await ollamaService.processMessage(conversationHistory, userRole, dbContext);
+        let aiResponse = await ollamaService.processMessage(conversationHistory, userRole, dbContext, bookingState);
 
         if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
             const toolResults = await Promise.all(aiResponse.toolCalls.map(async (toolCall) => {
@@ -269,14 +449,16 @@ exports.sendMessage = async (req, res) => {
                 return { name: toolCall.function.name, result };
             }));
 
-            const toolResultsMessage = toolResults.map(tr => `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`).join('\n\n');
+            const toolResultsMessage = toolResults.map(tr =>
+                `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+            ).join('\n\n');
 
             conversationHistory.push({
                 role: 'user',
-                content: `[SYSTEM: TOOL EXECUTION RESULTS - READ CAREFULLY]\n\n${toolResultsMessage}\n\nCRITICAL INSTRUCTIONS:\n1. Present ONLY the information shown in the results above\n2. DO NOT invent, make up, or hallucinate ANY doctor names, IDs, or details\n3. If results show "doctors: []", say "No doctors found"\n4. Use the EXACT names, ratings, and information from the results\n5. DO NOT use JSON format in your response - provide a natural conversation\n\nNow provide a helpful, natural response to the user based ONLY on the actual data above.`
+                content: `[SYSTEM: TOOL EXECUTION RESULTS]\n\n${toolResultsMessage}\n\nINSTRUCTIONS:\n1. Present ONLY information from the results above\n2. DO NOT invent names, IDs, or details\n3. DO NOT use JSON in your response - speak naturally\n4. Keep your response SHORT (2-4 sentences max)`
             });
 
-            aiResponse = await ollamaService.continueAfterToolExecution(conversationHistory, userRole, dbContext);
+            aiResponse = await ollamaService.continueAfterToolExecution(conversationHistory, userRole, dbContext, bookingState);
 
             session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
             session.messages.push({ role: 'assistant', content: aiResponse.content, timestamp: new Date(), toolsExecuted: toolResults.map(tr => tr.name) });
@@ -297,3 +479,4 @@ exports.sendMessage = async (req, res) => {
 };
 
 module.exports = exports;
+
