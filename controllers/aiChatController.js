@@ -150,6 +150,7 @@ function updateBookingState(existing, currentMessage, dbContext) {
                     if (!isNaN(d)) state.date = d.toISOString().split('T')[0];
                 } else {
                     const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+                    // "March 27" / "27 March"
                     const mm = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i) ||
                                t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
                     if (mm) {
@@ -157,6 +158,19 @@ function updateBookingState(existing, currentMessage, dbContext) {
                         const mon = (mm[2] || mm[1]).toLowerCase();
                         const idx = months.indexOf(mon);
                         if (idx >= 0) state.date = `${today.getFullYear()}-${String(idx + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                    } else {
+                        // Ordinal dates: "28th", "3rd", "1st", "22nd" — assume current/next month
+                        const ordinal = t.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/);
+                        if (ordinal) {
+                            const day = parseInt(ordinal[1]);
+                            if (day >= 1 && day <= 31) {
+                                let d = new Date(today.getFullYear(), today.getMonth(), day);
+                                // If the day has already passed this month, use next month
+                                d.setHours(0, 0, 0, 0);
+                                if (d < today) d = new Date(today.getFullYear(), today.getMonth() + 1, day);
+                                state.date = d.toISOString().split('T')[0];
+                            }
+                        }
                     }
                 }
             }
@@ -445,7 +459,32 @@ exports.sendMessage = async (req, res) => {
             return res.json({ message: confirmMsg, sessionId: session.sessionId, toolsExecuted: ['book_appointment'] });
         }
 
-        // ─── Normal LLM flow ─────────────────────────────────────────────
+        // ─── Deterministic booking questions (bypass LLM entirely for booking flow) ─
+        // When we're mid-booking, generate the next question on the server so the
+        // LLM can never loop or ask for info already collected.
+        if (userRole === 'patient' && bookingState.doctor) {
+            // We're in a booking flow — determine what's still missing
+            let nextQuestion = null;
+
+            if (!bookingState.date) {
+                nextQuestion = `Got it! What date would you like your appointment with ${bookingState.doctor.name}? (e.g. tomorrow, 28th, March 30)`;
+            } else if (!bookingState.time) {
+                nextQuestion = `Great, ${bookingState.date} it is. What time works for you? (e.g. 10am, 2:30pm, 14:00)`;
+            } else if (!bookingState.reason) {
+                nextQuestion = `Almost there! What's the reason for your visit?`;
+            }
+
+            if (nextQuestion) {
+                session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
+                session.messages.push({ role: 'assistant', content: nextQuestion, timestamp: new Date() });
+                await session.save();
+                return res.json({ message: nextQuestion, sessionId: session.sessionId });
+            }
+        }
+
+        // ─── Greet + show doctors (first message or no booking intent yet) ───────
+        // If no doctor selected yet and user mentions booking, show doctor list via LLM
+        // ─── Normal LLM flow (for search, non-booking queries, greeting, etc.) ─
         const conversationHistory = session.messages.slice(-20).map(msg => ({ role: msg.role, content: msg.content }));
         conversationHistory.push({ role: 'user', content: sanitizedMessage });
 

@@ -66,6 +66,10 @@ const labReportRoutes = require("./routes/labReportRoutes");
 const app = express();
 const server = http.createServer(app);
 
+// Trust Render's (and other reverse proxy) X-Forwarded-For header
+// Required for express-rate-limit to correctly identify client IPs in production
+app.set('trust proxy', 1);
+
 // Connect to Database
 connectDB();
 
