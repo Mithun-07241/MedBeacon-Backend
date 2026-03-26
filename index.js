@@ -76,46 +76,58 @@ connectDB();
 // ─── Security Middleware (HIPAA) ────────────────────────────────────────────
 
 // Helmet sets: HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, etc.
+// crossOriginResourcePolicy is set to false here — it MUST be disabled for a public API
+// that serves cross-origin requests. Leaving it as 'same-origin' (helmet default) blocks
+// fetch requests from Vercel/other domains before CORS headers are even considered.
 app.use(helmet({
+    crossOriginResourcePolicy: false,
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],  // allow inline styles (common in APIs)
+            styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
             connectSrc: ["'self'"],
             frameSrc: ["'none'"],
         }
     },
     hsts: {
-        maxAge: 31536000,        // 1 year
+        maxAge: 31536000,
         includeSubDomains: true,
         preload: true
     },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
 }));
 
-// CORS – allow explicitly listed origins + pattern matching for *.vercel.app previews
+// CORS — allow explicitly listed origins + pattern matching for *.vercel.app previews
+// Known production origins always allowed (env var overrides when set)
+const PRODUCTION_ORIGINS = [
+    'https://medbeacon.vercel.app',      // production frontend
+];
+
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : ['http://localhost:5173', 'http://localhost:3000'];
+    : [...PRODUCTION_ORIGINS, 'http://localhost:5173', 'http://localhost:3000'];
 
-// Additional wildcard domains always trusted (edit here to add more)
+// Additional wildcard domains always trusted
 const TRUSTED_PATTERNS = [
-    /^https:\/\/.*\.vercel\.app$/,      // all Vercel preview deployments
-    /^https:\/\/.*\.onrender\.com$/,    // Render previews / services calling each other
+    /^https:\/\/[^/]+\.vercel\.app$/,   // all Vercel preview deployments
+    /^https:\/\/[^/]+\.onrender\.com$/, // Render service-to-service
     /^http:\/\/localhost:\d+$/,         // any localhost port in dev
 ];
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+        // Allow no-origin requests (Postman, mobile, server-to-server)
         if (!origin) return callback(null, true);
 
-        // Exact match
+        // Always allow known production origins
+        if (PRODUCTION_ORIGINS.includes(origin)) return callback(null, true);
+
+        // Exact match against env-configured origins
         if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
 
-        // Pattern match
+        // Pattern match (*.vercel.app, *.onrender.com, localhost)
         if (TRUSTED_PATTERNS.some(re => re.test(origin))) return callback(null, true);
 
         console.warn(`CORS blocked: ${origin}`);
