@@ -42,7 +42,12 @@ const inventoryItemSchema = new mongoose.Schema({
     unit: {
         type: String,
         required: true,
-        enum: ["pieces", "sets", "units", "boxes", "items", "tablets", "capsules", "ml", "bottles", "vials", "tests", "sessions"]
+        enum: [
+            "pieces", "sets", "units", "boxes", "items",
+            "tablets", "capsules", "ml", "mg", "strips", "bottles", "vials", "sachets",
+            "tests", "samples",
+            "sessions", "procedures", "visits", "hours"
+        ]
     },
     location: {
         type: String,
@@ -57,13 +62,18 @@ const inventoryItemSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    sellingPrice: {
+        type: Number,
+        min: 0,
+        default: null
+    },
     supplier: {
         type: String,
         default: ""
     },
     status: {
         type: String,
-        enum: ["available", "in_use", "maintenance", "damaged", "disposed"],
+        enum: ["available", "in_use", "maintenance", "damaged", "disposed", "low_stock", "out_of_stock"],
         default: "available"
     },
     assignedTo: {

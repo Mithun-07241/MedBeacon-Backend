@@ -4,7 +4,7 @@ const { isValidUserId } = require('../utils/validation');
 exports.addInventoryItem = async (req, res) => {
     try {
         const { InventoryItem } = req.models;
-        const { name, category, description, quantity, unit, location, purchaseDate, purchasePrice, supplier, status, notes } = req.body;
+        const { name, category, description, quantity, unit, location, purchaseDate, purchasePrice, sellingPrice, supplier, status, notes } = req.body;
 
         if (!name || !category || !unit || !purchaseDate || purchasePrice === undefined) {
             return res.status(400).json({ error: 'Missing required fields' });
@@ -14,6 +14,7 @@ exports.addInventoryItem = async (req, res) => {
             id: uuidv4(), name, category, description: description || '',
             quantity: quantity || 1, unit, location: location || '',
             purchaseDate: new Date(purchaseDate), purchasePrice,
+            sellingPrice: sellingPrice !== undefined ? sellingPrice : null,
             supplier: supplier || '', status: status || 'available', notes: notes || ''
         });
 
@@ -95,7 +96,7 @@ exports.updateInventoryItem = async (req, res) => {
         const item = await InventoryItem.findOne({ id });
         if (!item) return res.status(404).json({ error: 'Item not found' });
 
-        const allowedFields = ['name', 'category', 'description', 'quantity', 'unit', 'location', 'purchaseDate', 'purchasePrice', 'supplier', 'status', 'notes'];
+        const allowedFields = ['name', 'category', 'description', 'quantity', 'unit', 'location', 'purchaseDate', 'purchasePrice', 'sellingPrice', 'supplier', 'status', 'notes'];
         allowedFields.forEach(field => {
             if (updates[field] !== undefined) {
                 item[field] = field === 'purchaseDate' ? new Date(updates[field]) : updates[field];
