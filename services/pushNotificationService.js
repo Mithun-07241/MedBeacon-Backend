@@ -86,8 +86,8 @@ const sendCallNotification = async (fcmToken, callData) => {
         console.log('✅ Call notification sent successfully:', response);
         return response;
     } catch (error) {
-        console.error('❌ Failed to send call notification:', error);
-        throw error;
+        console.error('❌ Failed to send call notification:', error.message);
+        return null; // non-critical — never crash the caller
     }
 };
 
@@ -122,8 +122,8 @@ const sendMissedCallNotification = async (fcmToken, callData) => {
         console.log('✅ Missed call notification sent:', response);
         return response;
     } catch (error) {
-        console.error('❌ Failed to send missed call notification:', error);
-        throw error;
+        console.error('❌ Failed to send missed call notification:', error.message);
+        return null;
     }
 };
 
@@ -154,8 +154,8 @@ const sendCallEndedNotification = async (fcmToken, callData) => {
         console.log('✅ Call ended notification sent:', response);
         return response;
     } catch (error) {
-        console.error('❌ Failed to send call ended notification:', error);
-        throw error;
+        console.error('❌ Failed to send call ended notification:', error.message);
+        return null;
     }
 };
 
@@ -214,8 +214,8 @@ const sendMessageNotification = async (fcmToken, messageData) => {
         console.log('✅ Message notification sent successfully:', response);
         return response;
     } catch (error) {
-        console.error('❌ Failed to send message notification:', error);
-        throw error;
+        console.error('❌ Failed to send message notification:', error.message);
+        return null; // non-critical — message was already saved, don't 500
     }
 };
 
