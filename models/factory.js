@@ -283,16 +283,39 @@ const settingsSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const aiChatSessionSchema = new mongoose.Schema({
-    userId: { type: String, ref: 'User', required: true },
+    sessionId: {
+        type: String,
+        default: uuidv4,
+        unique: true,
+        index: true
+    },
+    userId: { type: String, ref: 'User', required: true, index: true },
     title: { type: String, default: 'New Chat' },
-    messages: [{ role: String, content: String, timestamp: { type: Date, default: Date.now } }],
+    messages: [{
+        role: { type: String, enum: ['user', 'assistant', 'system'], required: true },
+        content: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now },
+        toolsExecuted: [{ type: String }]
+    }],
     isActive: { type: Boolean, default: true },
-    // Persisted booking state - accumulated across turns so it's never re-derived from scratch
+    lastMessageAt: { type: Date, default: Date.now },
+    // Persisted booking state — accumulated across turns, never re-derived from scratch
     bookingState: {
         type: mongoose.Schema.Types.Mixed,
-        default: { doctor: null, date: null, time: null, reason: null }
+        default: () => ({ doctor: null, date: null, time: null, reason: null })
     },
 }, { timestamps: true });
+
+aiChatSessionSchema.index({ userId: 1, lastMessageAt: -1 });
+aiChatSessionSchema.index({ sessionId: 1, userId: 1 });
+
+// Update lastMessageAt whenever messages are added
+aiChatSessionSchema.pre('save', function (next) {
+    if (this.messages && this.messages.length > 0) {
+        this.lastMessageAt = this.messages[this.messages.length - 1].timestamp || new Date();
+    }
+    next();
+});
 
 
 const labResultRowSchema = new mongoose.Schema({
@@ -340,16 +363,21 @@ clinicProfileSchema.index({ isSingleton: 1 }, { unique: true });
 
 // ─── Factory Function ──────────────────────────────────────────────────────
 
-const modelCache = new Map(); // dbName -> models object
+// Schema version — bump this whenever schema definitions change to invalidate
+// in-process model cache and force re-registration with updated schemas.
+const SCHEMA_VERSION = 'v4'; // bumped: added sessionId+lastMessageAt to AiChatSession
+
+const modelCache = new Map(); // `${dbName}:${SCHEMA_VERSION}` -> models object
 
 /**
  * Get all models bound to a specific mongoose connection.
- * Results are cached per connection.
+ * Results are cached per connection + schema version.
  * @param {mongoose.Connection} conn
  * @param {string} dbName - used as cache key
  */
 const getModels = (conn, dbName) => {
-    if (modelCache.has(dbName)) return modelCache.get(dbName);
+    const cacheKey = `${dbName}:${SCHEMA_VERSION}`;
+    if (modelCache.has(cacheKey)) return modelCache.get(cacheKey);
 
     const models = {
         User: conn.model('User', userSchema),
@@ -379,7 +407,7 @@ const getModels = (conn, dbName) => {
         Alert: conn.model('Alert', alertSchema),
     };
 
-    modelCache.set(dbName, models);
+    modelCache.set(cacheKey, models);
     return models;
 };
 

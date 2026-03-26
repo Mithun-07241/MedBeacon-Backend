@@ -11,7 +11,11 @@ const {
 exports.getSessions = async (req, res) => {
     try {
         const { AiChatSession } = req.models;
-        const sessions = await AiChatSession.find({ userId: req.user.id })
+        const sessions = await AiChatSession.find({
+            userId: req.user.id,
+            // Only return sessions with a valid sessionId (filters out orphans from old broken schema)
+            sessionId: { $exists: true, $ne: null, $type: 'string' }
+        })
             .sort({ lastMessageAt: -1 })
             .select('sessionId title lastMessageAt createdAt')
             .limit(50);
@@ -21,6 +25,8 @@ exports.getSessions = async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch chat sessions' });
     }
 };
+
+
 
 exports.createSession = async (req, res) => {
     try {
