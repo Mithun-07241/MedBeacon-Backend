@@ -214,21 +214,29 @@ const announcementSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
 
+// Matches chatController.js: doctorId/patientId/sender/text
 const conversationSchema = new mongoose.Schema({
-    participants: [{ type: String, ref: 'User' }],
+    doctorId:    { type: String, ref: 'User', required: true, index: true },
+    patientId:   { type: String, ref: 'User', required: true, index: true },
     lastMessage: { type: String, default: '' },
-    lastMessageAt: { type: Date, default: Date.now },
-    isActive: { type: Boolean, default: true },
+    lastSender:  { type: String },
+    unread: {
+        doctor:  { type: Number, default: 0 },
+        patient: { type: Number, default: 0 },
+    },
 }, { timestamps: true });
+conversationSchema.index({ doctorId: 1, patientId: 1 }, { unique: true });
+conversationSchema.index({ updatedAt: -1 });
 
 const messageSchema = new mongoose.Schema({
-    conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
-    senderId: { type: String, ref: 'User', required: true },
-    content: { type: String, required: true },
-    messageType: { type: String, enum: ['text', 'image', 'file'], default: 'text' },
-    fileUrl: { type: String },
-    isRead: { type: Boolean, default: false },
+    doctorId:  { type: String, ref: 'User', required: true },
+    patientId: { type: String, ref: 'User', required: true },
+    sender:    { type: String, required: true },   // User.id of the sender
+    text:      { type: String, required: true },   // stored encrypted (AES-256-GCM)
+    read:      { type: Boolean, default: false },
+    timestamp: { type: Date, default: Date.now },
 }, { timestamps: true });
+messageSchema.index({ doctorId: 1, patientId: 1, timestamp: 1 });
 
 const callSchema = new mongoose.Schema({
     callerId: { type: String, ref: 'User', required: true },
@@ -365,7 +373,7 @@ clinicProfileSchema.index({ isSingleton: 1 }, { unique: true });
 
 // Schema version — bump this whenever schema definitions change to invalidate
 // in-process model cache and force re-registration with updated schemas.
-const SCHEMA_VERSION = 'v4'; // bumped: added sessionId+lastMessageAt to AiChatSession
+const SCHEMA_VERSION = 'v5'; // bumped: fixed Message+Conversation schemas to match chatController field names
 
 const modelCache = new Map(); // `${dbName}:${SCHEMA_VERSION}` -> models object
 
