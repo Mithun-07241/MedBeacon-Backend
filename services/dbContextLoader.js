@@ -1,14 +1,15 @@
-const DoctorDetail = require('../models/DoctorDetail');
-const Appointment = require('../models/Appointment');
-const User = require('../models/User');
-
 /**
  * Load database context for AI
  * This gives the AI knowledge of available doctors and specializations
+ * from the clinic-specific database via req.models.
+ *
+ * @param {object} models - The clinic-specific models object (from req.models)
  */
-async function loadDatabaseContext() {
+async function loadDatabaseContext(models) {
     try {
-        // Get all doctors with their basic info
+        const { DoctorDetail, Appointment, User } = models;
+
+        // Get all doctors with their basic info from the clinic DB
         const doctors = await DoctorDetail.find()
             .limit(50) // Limit to prevent token overflow
             .select('userId firstName lastName specialization hospital availability');

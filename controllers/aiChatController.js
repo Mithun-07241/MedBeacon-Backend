@@ -255,7 +255,7 @@ exports.sendMessage = async (req, res) => {
         }
 
         const { loadDatabaseContext } = require('../services/dbContextLoader');
-        const dbContext = await loadDatabaseContext();
+        const dbContext = await loadDatabaseContext(req.models);
 
         const conversationHistory = session.messages.slice(-20).map(msg => ({ role: msg.role, content: msg.content }));
         conversationHistory.push({ role: 'user', content: sanitizedMessage });
