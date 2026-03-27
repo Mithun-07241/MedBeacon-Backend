@@ -47,7 +47,7 @@ exports.getTreatedPatients = async (req, res) => {
 exports.createInvoice = async (req, res) => {
     try {
         const { Invoice, User, ClinicProfile } = req.models;
-        const { patientId, appointmentId, items, tax, discount, dueDate, notes, upiId: bodyUpiId } = req.body;
+        const { patientId, appointmentId, items, tax, discount, dueDate, notes, upiId: bodyUpiId, status: bodyStatus } = req.body;
         const doctorId = req.user.id;
 
         if (req.user.role !== 'doctor') return res.status(403).json({ error: 'Only doctors can create invoices' });
@@ -88,7 +88,8 @@ exports.createInvoice = async (req, res) => {
             items: validatedItems, subtotal, taxPercent, discountPercent,
             tax: taxAmount, discount: discountAmount, total,
             dueDate: new Date(dueDate), notes: notes || '',
-            upiId: resolvedUpiId
+            upiId: resolvedUpiId,
+            status: ['draft', 'sent'].includes(bodyStatus) ? bodyStatus : 'draft'
         });
 
         res.status(201).json({ message: 'Invoice created successfully', invoice });
