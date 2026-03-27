@@ -44,6 +44,15 @@ const appointmentSchema = new mongoose.Schema({
     rated: {
         type: Boolean,
         default: false
+    },
+    rescheduleOffer: {
+        date: { type: String, default: '' },
+        time: { type: String, default: '' },
+        status: {
+            type: String,
+            enum: ['pending', 'accepted', 'declined', ''],
+            default: ''
+        }
     }
 }, {
     timestamps: true

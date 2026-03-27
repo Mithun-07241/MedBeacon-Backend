@@ -239,3 +239,75 @@ exports.getDoctorReviews = async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch doctor reviews' });
     }
 };
+// ─── Doctor: Cancel and offer a reschedule ────────────────────────────────
+exports.offerReschedule = async (req, res) => {
+    try {
+        const { Appointment } = req.models;
+        const { id } = req.params;
+        const { date, time, notes } = req.body;
+
+        if (req.user.role !== 'doctor') return res.status(403).json({ error: 'Only doctors can offer reschedules' });
+        if (!date || !time) return res.status(400).json({ error: 'New date and time are required' });
+
+        const appointment = await Appointment.findById(id);
+        if (!appointment) return res.status(404).json({ error: 'Appointment not found' });
+        if (appointment.doctorId !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+        if (!['pending', 'confirmed'].includes(appointment.status)) {
+            return res.status(400).json({ error: 'Can only reschedule pending or confirmed appointments' });
+        }
+
+        appointment.status = 'cancelled';
+        appointment.notes = notes || 'Doctor offered a reschedule';
+        appointment.rescheduleOffer = { date, time, status: 'pending' };
+        await appointment.save();
+
+        res.json({ message: 'Appointment cancelled with reschedule offer', appointment });
+    } catch (error) {
+        console.error('Offer Reschedule Error:', error);
+        res.status(500).json({ error: 'Failed to offer reschedule' });
+    }
+};
+
+// ─── Patient: Respond to reschedule offer ────────────────────────────────
+exports.respondToReschedule = async (req, res) => {
+    try {
+        const { Appointment } = req.models;
+        const { id } = req.params;
+        const { action } = req.body; // 'accept' | 'decline'
+
+        if (req.user.role !== 'patient') return res.status(403).json({ error: 'Only patients can respond to reschedule offers' });
+        if (!['accept', 'decline'].includes(action)) return res.status(400).json({ error: 'Action must be accept or decline' });
+
+        const original = await Appointment.findById(id);
+        if (!original) return res.status(404).json({ error: 'Appointment not found' });
+        if (original.patientId !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+        if (!original.rescheduleOffer?.status === 'pending') {
+            return res.status(400).json({ error: 'No pending reschedule offer on this appointment' });
+        }
+
+        if (action === 'decline') {
+            original.rescheduleOffer.status = 'declined';
+            await original.save();
+            return res.json({ message: 'Reschedule offer declined', appointment: original });
+        }
+
+        // Accept: create a fresh pending appointment with the new date/time
+        const newAppointment = await Appointment.create({
+            patientId: original.patientId,
+            doctorId: original.doctorId,
+            date: original.rescheduleOffer.date,
+            time: original.rescheduleOffer.time,
+            reason: original.reason,
+            notes: '',
+            status: 'pending',
+        });
+
+        original.rescheduleOffer.status = 'accepted';
+        await original.save();
+
+        res.json({ message: 'Reschedule accepted — new appointment created', appointment: newAppointment });
+    } catch (error) {
+        console.error('Respond Reschedule Error:', error);
+        res.status(500).json({ error: 'Failed to respond to reschedule offer' });
+    }
+};

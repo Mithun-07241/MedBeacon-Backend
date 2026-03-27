@@ -8,7 +8,9 @@ const {
     deleteAppointment,
     submitRating,
     getDoctorStats,
-    getDoctorReviews
+    getDoctorReviews,
+    offerReschedule,
+    respondToReschedule
 } = require("../controllers/appointmentController");
 const authMiddleware = require("../middleware/auth");
 const { logPhiAccess } = require("../middleware/phiAuditLogger");
@@ -27,6 +29,11 @@ router.delete("/:id", authMiddleware, logPhiAccess('appointment'), deleteAppoint
 // ── Rating ──
 router.post("/:id/rating", authMiddleware, logPhiAccess('appointment'), submitRating);
 
+// ── Reschedule ──
+router.post("/:id/reschedule-offer", authMiddleware, offerReschedule);
+router.post("/:id/reschedule-respond", authMiddleware, respondToReschedule);
+
 module.exports = router;
+
 
 
