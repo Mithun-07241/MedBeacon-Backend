@@ -130,6 +130,43 @@ function validateBookingParams(params) {
     if (!params.reason || !isValidReason(params.reason)) errors.push('Reason must be between 2 and 200 characters');
     if (params.notes && typeof params.notes === 'string' && params.notes.length > 500) errors.push('Notes must be less than 500 characters');
 
+    // Extra check: if date is today, ensure the time slot hasn't already passed
+    if (params.date && params.time && errors.length === 0) {
+        try {
+            const slotDate = new Date(params.date);
+            const now = new Date();
+            const isToday =
+                slotDate.getFullYear() === now.getFullYear() &&
+                slotDate.getMonth() === now.getMonth() &&
+                slotDate.getDate() === now.getDate();
+
+            if (isToday) {
+                const timeStr = params.time.trim();
+                const time12 = /^(\d{1,2}):(\d{2})\s?(AM|PM|am|pm)$/i.exec(timeStr);
+                const time24 = /^(\d{1,2}):(\d{2})$/.exec(timeStr);
+                let slotMinutes = null;
+
+                if (time12) {
+                    let h = parseInt(time12[1]);
+                    const m = parseInt(time12[2]);
+                    const period = time12[3].toUpperCase();
+                    if (period === 'PM' && h !== 12) h += 12;
+                    if (period === 'AM' && h === 12) h = 0;
+                    slotMinutes = h * 60 + m;
+                } else if (time24) {
+                    slotMinutes = parseInt(time24[1]) * 60 + parseInt(time24[2]);
+                }
+
+                if (slotMinutes !== null) {
+                    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                    if (nowMinutes >= slotMinutes) {
+                        errors.push('Cannot book an appointment for a time that has already passed today');
+                    }
+                }
+            }
+        } catch (_) { /* non-fatal — skip the extra check */ }
+    }
+
     return {
         isValid: errors.length === 0,
         errors,
