@@ -27,8 +27,8 @@ const medicalRecordSchema = new mongoose.Schema({
         type: String
     },
     fileUrl: {
-        type: String, // URL to stored file
-        required: true
+        type: String, // URL to stored file — optional
+        default: ''
     },
     size: {
         type: String // e.g. "2.4 MB" - simplifying for display
