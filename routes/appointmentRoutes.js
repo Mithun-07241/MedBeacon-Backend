@@ -13,16 +13,20 @@ const {
 const authMiddleware = require("../middleware/auth");
 const { logPhiAccess } = require("../middleware/phiAuditLogger");
 
+// ── Specific routes MUST come before /:id to avoid "doctor" being matched as an id ──
+router.get("/doctor/:doctorId/stats", authMiddleware, getDoctorStats);
+router.get("/doctor/:doctorId/reviews", authMiddleware, getDoctorReviews);
+
+// ── General CRUD ──
 router.get("/", authMiddleware, logPhiAccess('appointment'), getAppointments);
 router.get("/:id", authMiddleware, logPhiAccess('appointment'), getAppointmentById);
 router.post("/", authMiddleware, logPhiAccess('appointment'), createAppointment);
 router.patch("/:id", authMiddleware, logPhiAccess('appointment'), updateAppointment);
 router.delete("/:id", authMiddleware, logPhiAccess('appointment'), deleteAppointment);
 
-// Rating endpoints
+// ── Rating ──
 router.post("/:id/rating", authMiddleware, logPhiAccess('appointment'), submitRating);
-router.get("/doctor/:doctorId/stats", getDoctorStats);
-router.get("/doctor/:doctorId/reviews", getDoctorReviews);
 
 module.exports = router;
+
 
