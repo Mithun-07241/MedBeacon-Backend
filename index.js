@@ -103,9 +103,6 @@ app.use(helmet({
 // Known production origins always allowed (env var overrides when set)
 const PRODUCTION_ORIGINS = [
     'https://medbeacon.vercel.app',
-    'https://tauri.localhost',           // Tauri Android WebView
-    'http://tauri.localhost',
-    'tauri://localhost',      // production frontend
 ];
 
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
