@@ -104,6 +104,7 @@ app.use(helmet({
 const PRODUCTION_ORIGINS = [
     'https://medbeacon.vercel.app',
     'https://tauri.localhost',           // Tauri Android WebView
+    'http://tauri.localhost',
     'tauri://localhost',      // production frontend
 ];
 
