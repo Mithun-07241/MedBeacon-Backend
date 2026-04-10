@@ -203,6 +203,13 @@ exports.login = async (req, res) => {
             }
 
             const adminToken = signJwt({ id: 'admin-hardcoded', role: 'admin', dbName });
+            let adminClinicCode = null;
+            if (dbName) {
+                try {
+                    const clinic = await ClinicRegistry.findOne({ dbName }).select('clinicCode');
+                    if (clinic) adminClinicCode = clinic.clinicCode;
+                } catch (e) {}
+            }
             return res.json({
                 message: "Admin login successful",
                 token: adminToken,
@@ -212,6 +219,7 @@ exports.login = async (req, res) => {
                     username: 'Admin',
                     role: 'admin',
                     dbName,
+                    clinicCode: adminClinicCode,
                     verificationStatus: 'verified',
                     profileCompleted: true
                 }
@@ -287,6 +295,18 @@ exports.login = async (req, res) => {
         delete userObj.lockUntil;
         userObj.dbName = foundDbName;
 
+        // Attach clinicCode so the frontend can display it
+        try {
+            const ClinicRegistry = await getRegistryModel();
+            const clinicEntry = await ClinicRegistry.findOne({ dbName: foundDbName }).select('clinicCode clinicName');
+            if (clinicEntry) {
+                userObj.clinicCode = clinicEntry.clinicCode;
+                userObj.clinicName = clinicEntry.clinicName;
+            }
+        } catch (e) {
+            console.warn('Could not attach clinicCode:', e.message);
+        }
+
         res.json({ message: "Login successful", token, user: userObj });
 
     } catch (error) {
@@ -302,6 +322,20 @@ exports.getMe = async (req, res) => {
         const userObj = req.user.toObject();
         delete userObj.password;
         userObj.dbName = req.user.dbName;
+
+        // Attach clinicCode if not already present
+        if (!userObj.clinicCode && userObj.dbName) {
+            try {
+                const ClinicRegistry = await getRegistryModel();
+                const clinic = await ClinicRegistry.findOne({ dbName: userObj.dbName }).select('clinicCode clinicName');
+                if (clinic) {
+                    userObj.clinicCode = clinic.clinicCode;
+                    if (!userObj.clinicName) userObj.clinicName = clinic.clinicName;
+                }
+            } catch (e) {
+                console.warn('getMe: Could not attach clinicCode:', e.message);
+            }
+        }
 
         res.set("Cache-Control", "no-store");
         res.json({ user: userObj });
