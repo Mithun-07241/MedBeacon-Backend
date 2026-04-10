@@ -696,6 +696,227 @@ async function getActivityLogs(args, models) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// NEW TOOL EXECUTORS — additional automation coverage
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Clinic Profile Management ────────────────────────────────────────────────
+
+async function getClinicProfile(args, models) {
+    try {
+        const { ClinicProfile } = models;
+        if (!ClinicProfile) return { success: false, error: 'Clinic profiles not available.' };
+        const clinic = await ClinicProfile.findOne({ isSingleton: true }).lean();
+        if (!clinic) return { success: true, message: 'No clinic profile set up yet.', clinic: {} };
+        return {
+            success: true, message: '🏥 Clinic profile loaded.',
+            clinic: { name: clinic.clinicName, address: clinic.address, city: clinic.city, state: clinic.state, phone: clinic.phone, email: clinic.email, website: clinic.website, description: clinic.description, upiId: clinic.upiId ? '✅ Set' : '❌ Not set' }
+        };
+    } catch (e) { return { success: false, error: 'Failed to get clinic profile.' }; }
+}
+
+async function updateClinicProfile(args, models) {
+    try {
+        const { ClinicProfile } = models;
+        if (!ClinicProfile) return { success: false, error: 'Clinic profiles not available.' };
+        const updates = {};
+        ['clinicName', 'address', 'city', 'state', 'zipCode', 'phone', 'email', 'website', 'description', 'upiId'].forEach(f => {
+            if (args[f] !== undefined) updates[f] = args[f];
+        });
+        if (Object.keys(updates).length === 0) return { success: false, error: 'No fields to update. Provide at least one field.' };
+        const clinic = await ClinicProfile.findOneAndUpdate({ isSingleton: true }, { $set: updates }, { upsert: true, new: true });
+        return { success: true, message: `✅ Clinic profile updated: ${Object.keys(updates).join(', ')}` };
+    } catch (e) { return { success: false, error: 'Failed to update clinic profile.' }; }
+}
+
+// ── Patient Detail Lookup ────────────────────────────────────────────────────
+
+async function getPatientById(args, userId, userRole, models) {
+    try {
+        if (!args.patientId) return { success: false, error: 'Provide patientId.' };
+        const { User, PatientDetail } = models;
+        const details = await PatientDetail.findOne({ userId: args.patientId }).lean();
+        const user = await User.findOne({ id: args.patientId }).lean();
+        if (!user) return { success: false, error: 'Patient not found.' };
+        return {
+            success: true, message: '👤 Patient details loaded.',
+            patient: {
+                id: user.id, username: user.username, email: user.email,
+                firstName: details?.firstName, lastName: details?.lastName,
+                age: details?.age, gender: details?.gender,
+                phone: details?.phoneNumber, bloodType: details?.bloodType,
+                allergies: details?.allergies, address: details?.address,
+                medicalHistory: details?.medicalHistory
+            }
+        };
+    } catch (e) { return { success: false, error: 'Could not fetch patient.' }; }
+}
+
+// ── Treated Patients (for billing) ──────────────────────────────────────────
+
+async function getTreatedPatients(args, userId, models) {
+    try {
+        const { Appointment, User } = models;
+        const appointments = await Appointment.find({ doctorId: userId, status: 'completed' }).lean();
+        const patientIds = [...new Set(appointments.map(a => a.patientId))];
+        if (!patientIds.length) return { success: true, message: 'No treated patients yet.', patients: [] };
+        const patients = await User.aggregate([
+            { $match: { id: { $in: patientIds }, role: 'patient' } },
+            { $lookup: { from: 'patientdetails', localField: 'id', foreignField: 'userId', as: 'details' } },
+            { $unwind: { path: '$details', preserveNullAndEmptyArrays: true } },
+            { $project: { _id: 0, id: 1, username: 1, email: 1, firstName: '$details.firstName', lastName: '$details.lastName', phoneNumber: '$details.phoneNumber' } }
+        ]);
+        return { success: true, message: `${patients.length} treated patient(s)`, patients };
+    } catch (e) { return { success: false, error: 'Failed to fetch treated patients.' }; }
+}
+
+// ── Revenue & Billing Analytics ─────────────────────────────────────────────
+
+async function getRevenueReport(args, userId, userRole, models) {
+    try {
+        const { Invoice } = models;
+        const match = userRole === 'doctor' ? { doctorId: userId } : {};
+        const invoices = await Invoice.find(match).lean();
+        const paid = invoices.filter(i => i.status === 'paid');
+        const unpaid = invoices.filter(i => i.status === 'sent');
+        const draft = invoices.filter(i => i.status === 'draft');
+        const totalRevenue = paid.reduce((s, i) => s + (i.total || 0), 0);
+        const pendingAmount = unpaid.reduce((s, i) => s + (i.total || 0), 0);
+        const thisMonth = new Date(); thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
+        const monthlyRevenue = paid.filter(i => new Date(i.paidDate || i.createdAt) >= thisMonth).reduce((s, i) => s + (i.total || 0), 0);
+        return {
+            success: true, message: '💰 Revenue report generated.',
+            report: {
+                totalInvoices: invoices.length, totalRevenue: Math.round(totalRevenue),
+                pendingAmount: Math.round(pendingAmount), monthlyRevenue: Math.round(monthlyRevenue),
+                breakdown: { paid: paid.length, unpaid: unpaid.length, draft: draft.length },
+                collectionRate: invoices.length > 0 ? Math.round((paid.length / invoices.length) * 100) + '%' : 'N/A'
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate revenue report.' }; }
+}
+
+async function getBillingAnalytics(args, userId, userRole, models) {
+    try {
+        const { Invoice, User } = models;
+        const match = userRole === 'doctor' ? { doctorId: userId, status: 'sent' } : { status: 'sent' };
+        const unpaid = await Invoice.find(match).sort({ createdAt: 1 }).limit(20).lean();
+        const overdueDate = new Date(); overdueDate.setDate(overdueDate.getDate() - 30);
+        const overdue = unpaid.filter(i => new Date(i.createdAt) < overdueDate);
+        const freshUnpaid = unpaid.filter(i => new Date(i.createdAt) >= overdueDate);
+        const patientIds = [...new Set(unpaid.map(i => i.patientId))];
+        const patients = await User.find({ id: { $in: patientIds } }).select('id username').lean();
+        const pMap = {}; patients.forEach(p => pMap[p.id] = p.username);
+        return {
+            success: true, message: `📊 Billing analytics: ${unpaid.length} unpaid invoice(s), ${overdue.length} overdue.`,
+            analytics: {
+                unpaidCount: unpaid.length, overdueCount: overdue.length,
+                totalUnpaidAmount: Math.round(unpaid.reduce((s, i) => s + (i.total || 0), 0)),
+                overdueAmount: Math.round(overdue.reduce((s, i) => s + (i.total || 0), 0)),
+                overdue: overdue.slice(0, 5).map(i => ({ invoiceNumber: i.invoiceNumber, patient: pMap[i.patientId] || 'Unknown', amount: i.total, daysPending: Math.floor((Date.now() - new Date(i.createdAt)) / 86400000) })),
+                recent: freshUnpaid.slice(0, 5).map(i => ({ invoiceNumber: i.invoiceNumber, patient: pMap[i.patientId] || 'Unknown', amount: i.total }))
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate billing analytics.' }; }
+}
+
+// ── Bulk Operations ─────────────────────────────────────────────────────────
+
+async function bulkConfirmAppointments(args, userId, userRole, models) {
+    try {
+        const { Appointment, DoctorDetail, User } = models;
+        const match = { status: 'pending' };
+        if (userRole === 'doctor') match.doctorId = userId;
+        const pending = await Appointment.find(match).limit(50);
+        if (!pending.length) return { success: true, message: '✅ No pending appointments to confirm.', confirmed: 0 };
+        let confirmed = 0;
+        for (const apt of pending) {
+            apt.status = 'confirmed'; await apt.save(); confirmed++;
+        }
+        return { success: true, message: `✅ Bulk-confirmed ${confirmed} appointment(s)!`, confirmed };
+    } catch (e) { return { success: false, error: 'Failed to bulk confirm.' }; }
+}
+
+// ── Compound: Complete Appointment + Auto-Create Invoice ─────────────────────
+
+async function completeAndInvoice(args, userId, models) {
+    try {
+        const { appointmentId, items } = args;
+        if (!appointmentId) return { success: false, error: 'Provide appointmentId.' };
+        if (!items || !Array.isArray(items) || items.length === 0) return { success: false, error: 'Provide items [{description, quantity, rate}].' };
+
+        // Step 1: Complete the appointment
+        const completeResult = await completeAppointment({ appointmentId }, userId, 'doctor', models);
+        if (!completeResult.success) return { success: false, error: `Could not complete appointment: ${completeResult.error}` };
+
+        // Step 2: Get patient from the appointment
+        const { Appointment } = models;
+        const apt = await Appointment.findById(appointmentId).lean();
+        if (!apt) return { success: false, error: 'Appointment data missing.' };
+
+        // Step 3: Create invoice
+        const invoiceResult = await createInvoice({ patientId: apt.patientId, items }, userId, 'doctor', models);
+        if (!invoiceResult.success) return { success: false, error: `Appointment completed but invoice failed: ${invoiceResult.error}` };
+
+        return {
+            success: true,
+            message: `✅ Appointment completed AND invoice created!`,
+            appointment: completeResult,
+            invoice: invoiceResult
+        };
+    } catch (e) { return { success: false, error: 'Failed to complete and invoice.' }; }
+}
+
+// ── Compound: Morning Briefing ──────────────────────────────────────────────
+
+async function morningBriefing(args, userId, userRole, models) {
+    try {
+        const results = {};
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // Schedule
+        results.schedule = await getScheduleSummary(args, userId, userRole, models);
+
+        // Stock alerts
+        results.lowStock = await getLowStockAlerts(args, models);
+        results.expiring = await getExpiringItems({ days: 7 }, models);
+
+        // Revenue
+        results.revenue = await getRevenueReport(args, userId, userRole, models);
+
+        // Billing
+        results.billing = await getBillingAnalytics(args, userId, userRole, models);
+
+        if (userRole === 'doctor') {
+            results.stats = await getDoctorStats(args, userId, userRole, models);
+            results.reviews = await getDoctorReviews(args, userId, models);
+        } else {
+            results.platform = await getPlatformStats(args, models);
+            results.pendingDoctors = await getPendingDoctors(args, models);
+        }
+
+        const alerts = [];
+        if (results.lowStock.alerts?.length) alerts.push(`🔴 ${results.lowStock.alerts.length} low stock items`);
+        if (results.expiring.items?.length) alerts.push(`🟡 ${results.expiring.items.length} items expiring within 7 days`);
+        if (results.billing.analytics?.overdueCount) alerts.push(`🔴 ${results.billing.analytics.overdueCount} overdue invoices`);
+        if (results.schedule.appointments?.filter(a => a.status === 'pending')?.length) alerts.push(`🟠 ${results.schedule.appointments.filter(a => a.status === 'pending').length} pending appointments`);
+
+        return {
+            success: true,
+            message: `☀️ Good morning! Here's your briefing for ${todayStr}`,
+            briefing: {
+                date: todayStr,
+                urgentAlerts: alerts.length > 0 ? alerts : ['✅ All clear — nothing urgent!'],
+                schedule: results.schedule,
+                revenue: results.revenue.report,
+                billing: results.billing.analytics,
+                stockAlerts: results.lowStock.alerts?.length || 0,
+                expiringItems: results.expiring.items?.length || 0
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate morning briefing.' }; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MASTER TOOL PERMISSIONS & EXECUTOR
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -703,10 +924,11 @@ const P = { p: 'patient', d: 'doctor', a: 'admin', c: 'clinic_admin' };
 const TOOL_PERMISSIONS = {
     // Patient
     book_appointment: [P.p], get_appointments: [P.p], cancel_appointment: [P.p], rate_appointment: [P.p],
-    reschedule_appointment: [P.p], // patient version (accept/decline)
+    reschedule_appointment: [P.p],
     view_medications: [P.p], view_health_metrics: [P.p], add_health_metric: [P.p],
     view_lab_reports: [P.p], view_medical_records: [P.p],
     view_invoices: [P.p], submit_payment_ref: [P.p],
+    patient_health_summary: [P.p],
     // Shared
     search_doctors: [P.p, P.d, P.a, P.c], get_doctor_info: [P.p, P.d, P.a, P.c],
     view_announcements: [P.p, P.d, P.a, P.c],
@@ -720,22 +942,157 @@ const TOOL_PERMISSIONS = {
     get_patient_list: [P.d, P.a, P.c], get_schedule_summary: [P.d, P.a, P.c],
     confirm_appointment: [P.d, P.a, P.c], complete_appointment: [P.d, P.a, P.c], reject_appointment: [P.d, P.a, P.c],
     get_doctor_reviews: [P.d], get_doctor_stats: [P.d, P.a, P.c],
-    // Doctor-specific clinical
+    get_patient_by_id: [P.d, P.a, P.c],
+    get_treated_patients: [P.d],
+    bulk_confirm_appointments: [P.d, P.a, P.c],
+    // Doctor clinical
     prescribe_medication: [P.d], create_lab_report: [P.d], get_lab_reports: [P.d],
     view_patient_records: [P.d, P.a, P.c], add_medical_record: [P.d],
     view_patient_health_metrics: [P.d, P.a, P.c],
     // Doctor billing
     create_invoice: [P.d, P.a, P.c], get_invoices: [P.d, P.a, P.c], mark_invoice_paid: [P.d],
     get_services: [P.d], create_service: [P.d],
-    // Doctor reschedule (offer to patient)
-    'reschedule_appointment_doctor': [P.d],
+    reschedule_appointment_doctor: [P.d],
+    get_revenue_report: [P.d, P.a, P.c],
+    get_billing_analytics: [P.d, P.a, P.c],
+    // Doctor + Admin compound workflows
+    daily_clinic_report: [P.d, P.a, P.c],
+    pharmacy_audit: [P.d, P.a, P.c],
+    inventory_restock_report: [P.d, P.a, P.c],
+    complete_and_invoice: [P.d],
+    morning_briefing: [P.d, P.a, P.c],
+    // Admin: Clinic management
+    get_clinic_profile: [P.a, P.c],
+    update_clinic_profile: [P.a, P.c],
     // Admin only
     get_platform_stats: [P.a, P.c], get_analytics: [P.a, P.c], get_user_list: [P.a, P.c],
     get_all_doctors: [P.a, P.c], get_pending_doctors: [P.a, P.c],
     verify_doctor: [P.a, P.c], update_user: [P.a, P.c], delete_user: [P.a, P.c],
     get_all_appointments: [P.a, P.c],
     send_announcement: [P.a, P.c], get_announcements: [P.a, P.c], get_activity_logs: [P.a, P.c],
+    // Admin compound
+    clinic_overview_report: [P.a, P.c],
+    auto_verify_pending_doctors: [P.a, P.c],
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPOUND WORKFLOW TOOLS (multi-step autonomous)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function dailyClinicReport(args, userId, userRole, models) {
+    try {
+        const results = {};
+        results.schedule = await getScheduleSummary(args, userId, userRole, models);
+        results.lowStock = await getLowStockAlerts(args, models);
+        results.expiring = await getExpiringItems({ days: 14 }, models);
+        results.inventoryStats = await getInventoryStats(args, models);
+        if (userRole !== 'doctor') {
+            results.platformStats = await getPlatformStats(args, models);
+            results.pendingDoctors = await getPendingDoctors(args, models);
+        } else {
+            results.doctorStats = await getDoctorStats(args, userId, userRole, models);
+            results.reviews = await getDoctorReviews(args, userId, models);
+        }
+        return { success: true, message: '📊 Daily clinic report generated', report: results };
+    } catch (e) { return { success: false, error: 'Failed to generate daily report.' }; }
+}
+
+async function pharmacyAudit(args, userId, userRole, models) {
+    try {
+        const stock = await getPharmacyStock({}, models);
+        const expiring = await getExpiringItems({ days: 30 }, models);
+        const lowStock = await getLowStockAlerts({}, models);
+        const totalItems = stock.items?.length || 0;
+        const totalValue = stock.items?.reduce((s, i) => s + (i.price || 0) * (i.quantity || 0), 0) || 0;
+        const expired = expiring.items?.filter(i => i.status?.includes('EXPIRED')) || [];
+        const expiringItems = expiring.items?.filter(i => i.status?.includes('Expiring')) || [];
+        const lowItems = lowStock.alerts?.filter(a => a.source === 'Pharmacy') || [];
+        return {
+            success: true, message: '🔬 Pharmacy audit complete',
+            audit: {
+                summary: { totalItems, totalValue: Math.round(totalValue), expiredCount: expired.length, expiringCount: expiringItems.length, lowStockCount: lowItems.length },
+                expired: expired.slice(0, 10), expiringSoon: expiringItems.slice(0, 10), lowStock: lowItems.slice(0, 10),
+                actionRequired: expired.length + lowItems.length,
+                recommendation: expired.length > 0 ? '⚠️ Remove expired items immediately!' : (lowItems.length > 0 ? '📦 Reorder low-stock medicines' : '✅ Pharmacy is in good shape')
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to run pharmacy audit.' }; }
+}
+
+async function patientHealthSummary(args, userId, models) {
+    try {
+        const [meds, metrics, reports, records] = await Promise.all([
+            viewMedications(args, userId, models), viewHealthMetrics(args, userId, models),
+            viewLabReports(args, userId, models), viewMedicalRecords(args, userId, models)
+        ]);
+        return {
+            success: true, message: '🏥 Health summary generated',
+            summary: {
+                medications: { active: meds.medications?.filter(m => m.status === 'active')?.length || 0, total: meds.medications?.length || 0, list: meds.medications?.slice(0, 5) || [] },
+                latestMetrics: metrics.metrics?.slice(0, 5) || [],
+                recentReports: reports.reports?.slice(0, 3) || [],
+                recentRecords: records.records?.slice(0, 3) || []
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate health summary.' }; }
+}
+
+async function inventoryRestockReport(args, userId, userRole, models) {
+    try {
+        const lowStock = await getLowStockAlerts(args, models);
+        const stats = await getInventoryStats(args, models);
+        const alerts = lowStock.alerts || [];
+        const outOfStock = alerts.filter(a => a.status === 'out_of_stock' || a.quantity === 0);
+        const criticalLow = alerts.filter(a => a.quantity > 0 && a.quantity <= 2);
+        return {
+            success: true, message: `📦 Restock report: ${alerts.length} items need attention`,
+            report: {
+                outOfStock: { count: outOfStock.length, items: outOfStock.map(i => ({ name: i.name, category: i.category, source: i.source })) },
+                criticallyLow: { count: criticalLow.length, items: criticalLow.map(i => ({ name: i.name, quantity: i.quantity, unit: i.unit, source: i.source })) },
+                inventoryAlerts: alerts.filter(a => a.source === 'Inventory').length,
+                pharmacyAlerts: alerts.filter(a => a.source === 'Pharmacy').length,
+                totalInventoryValue: stats.stats?.totalValue || 0,
+                recommendation: outOfStock.length > 0 ? '🚨 URGENT: Reorder out-of-stock items NOW!' : (criticalLow.length > 0 ? '⚠️ Reorder critically low items soon' : '✅ Stock levels adequate')
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate restock report.' }; }
+}
+
+async function clinicOverviewReport(args, models) {
+    try {
+        const [platform, analytics, allDocs, pending, allApts] = await Promise.all([
+            getPlatformStats(args, models), getAnalytics(args, models),
+            getAllDoctors(args, models), getPendingDoctors(args, models), getAllAppointments(args, models)
+        ]);
+        const invStats = await getInventoryStats(args, models);
+        return {
+            success: true, message: '🏥 Full clinic overview generated',
+            overview: {
+                platform: platform.stats, analytics: { newSignups: analytics.analytics?.newSignups, activeUsers: analytics.analytics?.activeUsers },
+                doctors: { total: allDocs.doctors?.length || 0, pendingVerification: pending.doctors?.length || 0 },
+                appointments: allApts.stats || {}, inventory: invStats.stats,
+                alerts: { pendingDoctors: pending.doctors?.length || 0, pendingAppointments: allApts.stats?.pending || 0 }
+            }
+        };
+    } catch (e) { return { success: false, error: 'Failed to generate clinic overview.' }; }
+}
+
+async function autoVerifyPendingDoctors(args, models) {
+    try {
+        const pending = await getPendingDoctors(args, models);
+        if (!pending.doctors?.length) return { success: true, message: '✅ No pending doctors to verify.', verified: [] };
+        const results = [];
+        for (const doc of pending.doctors) {
+            const result = await verifyDoctor({ userId: doc.id, action: 'approve' }, models);
+            results.push({ username: doc.username, email: doc.email, specialization: doc.specialization, result: result.success ? '✅ Approved' : `❌ ${result.error}` });
+        }
+        return { success: true, message: `✅ Processed ${results.length} doctor(s)`, verified: results };
+    } catch (e) { return { success: false, error: 'Failed to auto-verify doctors.' }; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MASTER TOOL EXECUTOR (includes compound workflows)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function executeToolCall(toolCall, userId, userRole, models) {
     const { name, arguments: args } = toolCall.function;
@@ -803,6 +1160,23 @@ async function executeToolCall(toolCall, userId, userRole, models) {
             case 'send_announcement': return await sendAnnouncement(parsedArgs, userId, models);
             case 'get_announcements': return await viewAnnouncements(parsedArgs, userId, userRole, models);
             case 'get_activity_logs': return await getActivityLogs(parsedArgs, models);
+            // Compound workflow tools
+            case 'daily_clinic_report': return await dailyClinicReport(parsedArgs, userId, userRole, models);
+            case 'pharmacy_audit': return await pharmacyAudit(parsedArgs, userId, userRole, models);
+            case 'patient_health_summary': return await patientHealthSummary(parsedArgs, userId, models);
+            case 'inventory_restock_report': return await inventoryRestockReport(parsedArgs, userId, userRole, models);
+            case 'clinic_overview_report': return await clinicOverviewReport(parsedArgs, models);
+            case 'auto_verify_pending_doctors': return await autoVerifyPendingDoctors(parsedArgs, models);
+            // New tools
+            case 'get_clinic_profile': return await getClinicProfile(parsedArgs, models);
+            case 'update_clinic_profile': return await updateClinicProfile(parsedArgs, models);
+            case 'get_patient_by_id': return await getPatientById(parsedArgs, userId, userRole, models);
+            case 'get_treated_patients': return await getTreatedPatients(parsedArgs, userId, models);
+            case 'get_revenue_report': return await getRevenueReport(parsedArgs, userId, userRole, models);
+            case 'get_billing_analytics': return await getBillingAnalytics(parsedArgs, userId, userRole, models);
+            case 'bulk_confirm_appointments': return await bulkConfirmAppointments(parsedArgs, userId, userRole, models);
+            case 'complete_and_invoice': return await completeAndInvoice(parsedArgs, userId, models);
+            case 'morning_briefing': return await morningBriefing(parsedArgs, userId, userRole, models);
             default: return { error: `Unknown tool: ${name}` };
         }
     } catch (error) { console.error(`Tool error (${name}):`, error); return { error: error.message || 'Tool execution failed' }; }
@@ -855,26 +1229,60 @@ exports.sendMessage = async (req, res) => {
             if (q) { session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() }); session.messages.push({ role: 'assistant', content: q, timestamp: new Date() }); await session.save(); return res.json({ message: q, sessionId: session.sessionId }); }
         }
 
-        // LLM flow
+        // ══════════════════════════════════════════════════════════════════════
+        // AGENTIC LOOP — AI chains multiple tools autonomously
+        // ══════════════════════════════════════════════════════════════════════
+        const MAX_AGENT_ITERATIONS = 8;
         const history = session.messages.slice(-20).map(m => ({ role: m.role, content: m.content }));
         history.push({ role: 'user', content: sanitizedMessage });
-        let aiResponse = await ollamaService.processMessage(history, userRole, dbContext, bookingState);
 
-        if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
-            const toolResults = await Promise.all(aiResponse.toolCalls.map(async tc => ({ name: tc.function.name, result: await executeToolCall(tc, userId, userRole, req.models) })));
-            const toolMsg = toolResults.map(tr => `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`).join('\n\n');
-            history.push({ role: 'user', content: `[SYSTEM: TOOL RESULTS]\n\n${toolMsg}\n\nINSTRUCTIONS: Present ONLY info from results. NO JSON. Be concise. Use markdown.` });
+        let aiResponse = await ollamaService.processMessage(history, userRole, dbContext, bookingState);
+        const allToolsExecuted = [];
+        let iterations = 0;
+
+        while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0 && iterations < MAX_AGENT_ITERATIONS) {
+            iterations++;
+
+            // Execute all tool calls from this iteration in parallel
+            const toolResults = await Promise.all(
+                aiResponse.toolCalls.map(async tc => ({
+                    name: tc.function.name,
+                    result: await executeToolCall(tc, userId, userRole, req.models)
+                }))
+            );
+            allToolsExecuted.push(...toolResults.map(tr => tr.name));
+
+            // Feed results back with agentic instructions
+            const toolMsg = toolResults.map(tr =>
+                `Tool: ${tr.name}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+            ).join('\n\n');
+
+            history.push({
+                role: 'user',
+                content: `[SYSTEM: TOOL RESULTS — step ${iterations}/${MAX_AGENT_ITERATIONS}]\n\n${toolMsg}\n\nINSTRUCTIONS:\n- If you need MORE data or actions to fully complete the user's request, call another tool NOW.\n- Chain tools as needed — do NOT ask the user for permission between steps.\n- When the task is COMPLETE, present a final summary. NO raw JSON. Use markdown.`
+            });
+
+            // Continue — AI may call another tool or generate final response
             aiResponse = await ollamaService.continueAfterToolExecution(history, userRole, dbContext, bookingState);
-            session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
-            session.messages.push({ role: 'assistant', content: aiResponse.content, timestamp: new Date(), toolsExecuted: toolResults.map(tr => tr.name) });
-            await session.save();
-            return res.json({ message: aiResponse.content, sessionId: session.sessionId, toolsExecuted: toolResults.map(tr => tr.name) });
         }
 
+        // Save conversation
         session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
-        session.messages.push({ role: 'assistant', content: aiResponse.content, timestamp: new Date() });
+        session.messages.push({
+            role: 'assistant',
+            content: aiResponse.content,
+            timestamp: new Date(),
+            ...(allToolsExecuted.length > 0 && { toolsExecuted: allToolsExecuted })
+        });
         await session.save();
-        res.json({ message: aiResponse.content, sessionId: session.sessionId });
+
+        res.json({
+            message: aiResponse.content,
+            sessionId: session.sessionId,
+            ...(allToolsExecuted.length > 0 && { toolsExecuted: allToolsExecuted }),
+            ...(iterations > 1 && { agentSteps: iterations })
+        });
+
     } catch (error) { console.error('AI Chat Error:', error); res.status(500).json({ error: 'Failed to process message', details: error.message }); }
 };
 
