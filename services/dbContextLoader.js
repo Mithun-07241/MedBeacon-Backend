@@ -1,11 +1,13 @@
 /**
  * Load database context for AI
- * This gives the AI knowledge of available doctors and specializations
+ * This gives the AI knowledge of available doctors, specializations,
+ * inventory items, pharmacy stock, and platform stats
  * from the clinic-specific database via req.models.
  *
  * @param {object} models - The clinic-specific models object (from req.models)
+ * @param {string} userRole - The role of the current user
  */
-async function loadDatabaseContext(models) {
+async function loadDatabaseContext(models, userRole = 'patient') {
     try {
         const { DoctorDetail, Appointment, User } = models;
 
@@ -52,10 +54,93 @@ async function loadDatabaseContext(models) {
             })
         );
 
-        return {
+        const context = {
             doctors: doctorsWithRatings,
             specializations
         };
+
+        // Load inventory & pharmacy context for doctor and admin roles
+        if (userRole === 'doctor' || userRole === 'admin' || userRole === 'clinic_admin') {
+            try {
+                const { InventoryItem, PharmacyItem } = models;
+
+                // Inventory summary
+                if (InventoryItem) {
+                    const invItems = await InventoryItem.find({}).limit(200).lean();
+                    const invCategories = {};
+                    let totalValue = 0;
+                    let lowStockCount = 0;
+
+                    invItems.forEach(item => {
+                        invCategories[item.category] = (invCategories[item.category] || 0) + 1;
+                        totalValue += (item.purchasePrice || 0) * (item.quantity || 0);
+                        if (item.status === 'low_stock' || item.status === 'out_of_stock' || item.quantity <= 5) {
+                            lowStockCount++;
+                        }
+                    });
+
+                    context.inventory = {
+                        totalItems: invItems.length,
+                        totalValue: Math.round(totalValue),
+                        lowStockCount,
+                        categories: invCategories,
+                        sampleItems: invItems.slice(0, 10).map(i => ({
+                            name: i.name, category: i.category, quantity: i.quantity,
+                            unit: i.unit, price: i.purchasePrice, status: i.status
+                        }))
+                    };
+                }
+
+                // Pharmacy summary
+                if (PharmacyItem) {
+                    const pharmItems = await PharmacyItem.find({}).limit(200).lean();
+                    const now = new Date();
+                    const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+                    const lowStockPharm = pharmItems.filter(i => i.quantity <= i.reorderLevel);
+                    const expiringPharm = pharmItems.filter(i => i.expiryDate && new Date(i.expiryDate) <= thirtyDays && new Date(i.expiryDate) > now);
+                    const expiredPharm = pharmItems.filter(i => i.expiryDate && new Date(i.expiryDate) <= now);
+
+                    context.pharmacy = {
+                        totalItems: pharmItems.length,
+                        lowStockCount: lowStockPharm.length,
+                        expiringCount: expiringPharm.length,
+                        expiredCount: expiredPharm.length,
+                        sampleItems: pharmItems.slice(0, 8).map(i => ({
+                            name: i.name, category: i.category, quantity: i.quantity,
+                            unit: i.unit, price: i.price, status: i.status,
+                            expiryDate: i.expiryDate ? new Date(i.expiryDate).toISOString().split('T')[0] : 'N/A'
+                        }))
+                    };
+                }
+            } catch (invError) {
+                console.warn('Could not load inventory/pharmacy context:', invError.message);
+            }
+        }
+
+        // Load platform stats for admin
+        if (userRole === 'admin' || userRole === 'clinic_admin') {
+            try {
+                const totalUsers = await User.countDocuments();
+                const totalDoctors = await User.countDocuments({ role: 'doctor' });
+                const totalPatients = await User.countDocuments({ role: 'patient' });
+                const totalAppointments = await Appointment.countDocuments();
+                const pendingAppointments = await Appointment.countDocuments({ status: 'pending' });
+                const pendingDoctors = await User.countDocuments({ role: 'doctor', verificationStatus: 'under_review' });
+                const todayStr = new Date().toISOString().split('T')[0];
+                const todayAppointments = await Appointment.countDocuments({ date: todayStr });
+
+                context.platformStats = {
+                    totalUsers, totalDoctors, totalPatients,
+                    totalAppointments, pendingAppointments,
+                    pendingDoctors, todayAppointments
+                };
+            } catch (statsError) {
+                console.warn('Could not load platform stats:', statsError.message);
+            }
+        }
+
+        return context;
     } catch (error) {
         console.error('Error loading database context:', error);
         return { doctors: [], specializations: [] };
