@@ -3,7 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const ollamaService = require('./ollamaService');
 const { loadDatabaseContext } = require('./dbContextLoader');
 const { connectRegistry } = require('../config/registry');
-const { getTenantConnection } = require('../middleware/tenantConnection');
+const { getClinicConnection } = require('../config/clinicDb');
+const { getModels } = require('../models/factory');
 
 let aiChatController;
 
@@ -29,18 +30,18 @@ const runProactiveBriefings = async () => {
         for (const clinic of activeClinics) {
             console.log(`📡 Autonomous Agent scanning clinic: ${clinic.clinicName}`);
             
-            const tenantConn = await getTenantConnection(clinic.dbName);
+            const tenantConn = await getClinicConnection(clinic.dbName);
             if (!tenantConn) continue;
 
-            const User = tenantConn.model('User');
-            const AiChatSession = tenantConn.model('AiChatSession');
+            const models = getModels(tenantConn, clinic.dbName);
+            const { User, AiChatSession } = models;
             
             const targetUsers = await User.find({ role: { $in: ['doctor', 'admin', 'clinic_admin'] } });
 
             for (const user of targetUsers) {
                 try {
                     const internalPrompt = "Wake up agent! Execute my full morning briefing proactively.";
-                    const dbContext = await loadDatabaseContext(tenantConn.models, user.role);
+                    const dbContext = await loadDatabaseContext(models, user.role);
 
                     const session = await AiChatSession.create({ 
                         sessionId: uuidv4(),
@@ -64,7 +65,7 @@ const runProactiveBriefings = async () => {
 
                         let toolResult;
                         try {
-                             toolResult = await aiChatController.executeToolCall(toolName, parsedArgs, user.id, user.role, tenantConn.models);
+                             toolResult = await aiChatController.executeToolCall(toolCall, user.id, user.role, models);
                         } catch(e) {
                             toolResult = { error: e.message };
                         }
