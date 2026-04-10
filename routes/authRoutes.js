@@ -3,6 +3,7 @@ const router = express.Router();
 const {
     signup,
     login,
+    loginSelectClinic,
     getMe,
     verifyOTP,
     resendOTP,
@@ -14,6 +15,7 @@ const authMiddleware = require("../middleware/auth");
 
 router.post("/signup", signup);
 router.post("/login", login);
+router.post("/login/select-clinic", loginSelectClinic);
 router.post("/verify-otp", verifyOTP);
 router.post("/resend-otp", resendOTP);
 router.get("/me", authMiddleware, getMe);

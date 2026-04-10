@@ -226,12 +226,11 @@ exports.login = async (req, res) => {
             });
         }
 
-        // Find which clinic this user belongs to
+        // Find ALL clinics this user belongs to
         const ClinicRegistry = await getRegistryModel();
         const allClinics = await ClinicRegistry.find({ isActive: true });
 
-        let foundUser = null;
-        let foundDbName = null;
+        const matches = []; // { user, dbName, clinicName, clinicCode }
 
         for (const clinic of allClinics) {
             try {
@@ -239,75 +238,71 @@ exports.login = async (req, res) => {
                 const models = getModels(conn, clinic.dbName);
                 const user = await models.User.findOne({ email: email.trim().toLowerCase() });
                 if (user) {
-                    foundUser = user;
-                    foundDbName = clinic.dbName;
-                    break;
+                    matches.push({
+                        user,
+                        dbName: clinic.dbName,
+                        clinicName: clinic.clinicName,
+                        clinicCode: clinic.clinicCode
+                    });
                 }
             } catch (e) {
                 console.warn(`Could not search clinic ${clinic.dbName}:`, e.message);
             }
         }
 
-        if (!foundUser) {
+        if (matches.length === 0) {
             return res.status(401).json({ error: "Invalid credentials" });
         }
 
+        // Validate password against first match (same password across clinics since same email)
+        const primaryMatch = matches[0];
+        const primaryUser = primaryMatch.user;
+
         // ── Account Lockout Check (HIPAA) ────────────────────────────────────
-        if (foundUser.lockUntil && foundUser.lockUntil > Date.now()) {
-            const minutesLeft = Math.ceil((foundUser.lockUntil - Date.now()) / 60000);
+        if (primaryUser.lockUntil && primaryUser.lockUntil > Date.now()) {
+            const minutesLeft = Math.ceil((primaryUser.lockUntil - Date.now()) / 60000);
             return res.status(423).json({
                 error: `Account locked due to too many failed attempts. Try again in ${minutesLeft} minute(s).`
             });
         }
 
-        if (foundUser.verificationStatus === 'pending') {
+        if (primaryUser.verificationStatus === 'pending') {
             return res.status(403).json({ error: "Email not verified. Please verify your email." });
         }
 
-        const isMatch = await verifyPassword(password, foundUser.password);
+        const isMatch = await verifyPassword(password, primaryUser.password);
         if (!isMatch) {
             // Increment failed attempts
-            foundUser.loginAttempts = (foundUser.loginAttempts || 0) + 1;
-            if (foundUser.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-                foundUser.lockUntil = new Date(Date.now() + LOCK_DURATION_MS);
-                foundUser.loginAttempts = 0;
-                await foundUser.save();
+            primaryUser.loginAttempts = (primaryUser.loginAttempts || 0) + 1;
+            if (primaryUser.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+                primaryUser.lockUntil = new Date(Date.now() + LOCK_DURATION_MS);
+                primaryUser.loginAttempts = 0;
+                await primaryUser.save();
                 return res.status(423).json({
                     error: `Account locked after ${MAX_LOGIN_ATTEMPTS} failed attempts. Try again in ${Math.ceil(LOCK_DURATION_MS / 60000)} minutes.`
                 });
             }
-            await foundUser.save();
+            await primaryUser.save();
             return res.status(401).json({ error: "Invalid credentials" });
         }
 
-        // ── Successful login: reset lockout, record audit fields ─────────────
-        foundUser.loginAttempts = 0;
-        foundUser.lockUntil = null;
-        foundUser.lastLoginAt = new Date();
-        foundUser.lastLoginIp = req.ip || req.socket?.remoteAddress || null;
-        await foundUser.save();
-
-        const token = signJwt({ id: foundUser.id, role: foundUser.role, dbName: foundDbName });
-
-        const userObj = foundUser.toObject();
-        delete userObj.password;
-        delete userObj.loginAttempts;
-        delete userObj.lockUntil;
-        userObj.dbName = foundDbName;
-
-        // Attach clinicCode so the frontend can display it
-        try {
-            const ClinicRegistry = await getRegistryModel();
-            const clinicEntry = await ClinicRegistry.findOne({ dbName: foundDbName }).select('clinicCode clinicName');
-            if (clinicEntry) {
-                userObj.clinicCode = clinicEntry.clinicCode;
-                userObj.clinicName = clinicEntry.clinicName;
-            }
-        } catch (e) {
-            console.warn('Could not attach clinicCode:', e.message);
+        // ── Multi-clinic: ask user to pick ────────────────────────────────────
+        if (matches.length > 1) {
+            return res.json({
+                clinicSelection: true,
+                message: "You have accounts in multiple clinics. Please select one.",
+                clinics: matches.map(m => ({
+                    dbName: m.dbName,
+                    clinicName: m.clinicName,
+                    clinicCode: m.clinicCode,
+                    role: m.user.role,
+                    username: m.user.username
+                }))
+            });
         }
 
-        res.json({ message: "Login successful", token, user: userObj });
+        // ── Single clinic: log in directly ────────────────────────────────────
+        await completeLogin(primaryUser, primaryMatch.dbName, req, res);
 
     } catch (error) {
         console.error("Login Error:", error);
@@ -315,6 +310,84 @@ exports.login = async (req, res) => {
     }
 };
 
+// ─── Login Select Clinic (multi-clinic flow step 2) ──────────────────────────
+
+exports.loginSelectClinic = async (req, res) => {
+    try {
+        const { email, password, dbName } = req.body;
+
+        if (!email || !password || !dbName) {
+            return res.status(400).json({ error: "Email, password, and clinic are required" });
+        }
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ error: "Invalid email format" });
+        }
+
+        // Verify the clinic exists
+        const ClinicRegistry = await getRegistryModel();
+        const clinic = await ClinicRegistry.findOne({ dbName, isActive: true });
+        if (!clinic) {
+            return res.status(404).json({ error: "Clinic not found" });
+        }
+
+        // Find user in the specific clinic
+        const conn = await getClinicConnection(dbName);
+        const models = getModels(conn, dbName);
+        const foundUser = await models.User.findOne({ email: email.trim().toLowerCase() });
+
+        if (!foundUser) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        // Verify password again for security
+        const isMatch = await verifyPassword(password, foundUser.password);
+        if (!isMatch) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        if (foundUser.verificationStatus === 'pending') {
+            return res.status(403).json({ error: "Email not verified. Please verify your email." });
+        }
+
+        await completeLogin(foundUser, dbName, req, res);
+
+    } catch (error) {
+        console.error("Login Select Clinic Error:", error);
+        res.status(500).json({ error: "Login failed" });
+    }
+};
+
+// ─── Shared login completion helper ──────────────────────────────────────────
+
+async function completeLogin(user, dbName, req, res) {
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+    user.lastLoginAt = new Date();
+    user.lastLoginIp = req.ip || req.socket?.remoteAddress || null;
+    await user.save();
+
+    const token = signJwt({ id: user.id, role: user.role, dbName });
+
+    const userObj = user.toObject();
+    delete userObj.password;
+    delete userObj.loginAttempts;
+    delete userObj.lockUntil;
+    userObj.dbName = dbName;
+
+    // Attach clinicCode
+    try {
+        const ClinicRegistry = await getRegistryModel();
+        const clinicEntry = await ClinicRegistry.findOne({ dbName }).select('clinicCode clinicName');
+        if (clinicEntry) {
+            userObj.clinicCode = clinicEntry.clinicCode;
+            userObj.clinicName = clinicEntry.clinicName;
+        }
+    } catch (e) {
+        console.warn('Could not attach clinicCode:', e.message);
+    }
+
+    res.json({ message: "Login successful", token, user: userObj });
+}
 // ─── Get Me ──────────────────────────────────────────────────────────────────
 
 exports.getMe = async (req, res) => {
