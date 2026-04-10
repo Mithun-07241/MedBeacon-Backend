@@ -101,15 +101,9 @@ app.use(helmet({
 
 // CORS — allow explicitly listed origins + pattern matching for *.vercel.app previews
 // Known production origins always allowed (env var overrides when set)
-const PRODUCTION_ORIGINS = [
-    'https://medbeacon.vercel.app',
-    'https://tauri.localhost',           // Tauri Android WebView
-    'tauri://localhost',      // production frontend
-];
-
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : [...PRODUCTION_ORIGINS, 'http://localhost:5173', 'http://localhost:3000'];
+    : [];
 
 // Additional wildcard domains always trusted
 const TRUSTED_PATTERNS = [
@@ -122,9 +116,6 @@ app.use(cors({
     origin: (origin, callback) => {
         // Allow no-origin requests (Postman, mobile, server-to-server)
         if (!origin) return callback(null, true);
-
-        // Always allow known production origins
-        if (PRODUCTION_ORIGINS.includes(origin)) return callback(null, true);
 
         // Exact match against env-configured origins
         if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
