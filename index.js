@@ -179,6 +179,10 @@ const io = initSocket(server);
 const { setupSocketIO } = require("./socketServer");
 setupSocketIO(io);
 
+// Initialize Autonomous Agent Background Scheduler
+const { initAutonomy } = require("./services/autonomousCronJob");
+initAutonomy();
+
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {

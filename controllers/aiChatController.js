@@ -1286,4 +1286,5 @@ exports.sendMessage = async (req, res) => {
     } catch (error) { console.error('AI Chat Error:', error); res.status(500).json({ error: 'Failed to process message', details: error.message }); }
 };
 
+exports.executeToolCall = executeToolCall;
 module.exports = exports;
