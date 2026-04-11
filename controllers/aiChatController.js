@@ -213,7 +213,7 @@ async function getDoctorInfo(args, models) {
     if (!doctor || !user) return { success: false, error: 'Doctor not found.' };
     const stats = await Appointment.aggregate([{ $match: { doctorId: args.doctorId, status: 'completed' } }, { $group: { _id: null, count: { $sum: 1 }, ratings: { $sum: { $cond: [{ $eq: ['$rated', true] }, 1, 0] } }, sum: { $sum: { $cond: [{ $eq: ['$rated', true] }, '$rating', 0] } } } }]);
     const s = stats[0] || { count: 0, ratings: 0, sum: 0 };
-    return { success: true, doctor: { name: doctor.firstName ? `Dr. ${doctor.firstName} ${doctor.lastName}` : user.username, specialization: doctor.specialization || 'GP', hospital: doctor.hospital || 'N/A', experience: doctor.experience || 'N/A', bio: doctor.bio || '', rating: s.ratings > 0 ? (s.sum / s.ratings).toFixed(1) : 'New', patientsServed: s.count } };
+    return { success: true, doctor: { name: doctor.firstName ? `Dr. ${doctor.firstName} ${doctor.lastName}` : user.username, specialization: doctor.specialization || 'General Practitioner', hospital: doctor.hospital || 'N/A', experience: doctor.experience || 'N/A', bio: doctor.bio || '', rating: s.ratings > 0 ? (s.sum / s.ratings).toFixed(1) : 'New', patientsServed: s.count } };
 }
 
 // ── PATIENT: Health & Records ────────────────────────────────────────────────
@@ -474,7 +474,9 @@ async function prescribeMedication(args, userId, models) {
     try { const { patientId, name, dosage, frequency, instructions, duration } = args;
         if (!patientId || !name || !dosage || !frequency) return { success: false, error: 'Provide patientId, name, dosage, frequency.' };
         const patient = await models.User.findOne({ id: patientId, role: 'patient' }); if (!patient) return { success: false, error: 'Patient not found.' };
-        const med = new models.Medication({ patientId, name, dosage, frequency, instructions: instructions || '', duration: duration || '', prescribedBy: 'Doctor', status: 'active' });
+        const docDetail = await models.DoctorDetail.findOne({ userId }); const docUser = await models.User.findOne({ id: userId });
+        const doctorName = docDetail?.firstName && docDetail?.lastName ? `Dr. ${docDetail.firstName} ${docDetail.lastName}` : docUser?.username || 'Doctor';
+        const med = new models.Medication({ patientId, name, dosage, frequency, instructions: instructions || '', duration: duration || '', prescribedBy: doctorName, status: 'active' });
         await med.save();
         return { success: true, message: `💊 Prescribed ${name} (${dosage}, ${frequency}) to ${patient.username}.` };
     } catch (e) { return { success: false, error: 'Failed to prescribe medication.' }; }
@@ -509,7 +511,9 @@ async function viewPatientRecords(args, userId, userRole, models) {
 async function addMedicalRecord(args, userId, models) {
     try { const { patientId, name, type, date } = args;
         if (!patientId || !name || !type) return { success: false, error: 'Provide patientId, name, type.' };
-        const record = new models.MedicalRecord({ patientId, name, type, date: date ? new Date(date) : new Date(), doctorName: 'Doctor' });
+        const docDetail = await models.DoctorDetail.findOne({ userId }); const docUser = await models.User.findOne({ id: userId });
+        const doctorName = docDetail?.firstName && docDetail?.lastName ? `Dr. ${docDetail.firstName} ${docDetail.lastName}` : docUser?.username || 'Doctor';
+        const record = new models.MedicalRecord({ patientId, name, type, date: date ? new Date(date) : new Date(), doctorName });
         await record.save();
         return { success: true, message: `📋 Medical record "${name}" added for patient.` };
     } catch (e) { return { success: false, error: 'Failed to add record.' }; }
@@ -1230,6 +1234,52 @@ exports.sendMessage = async (req, res) => {
         }
 
         // ══════════════════════════════════════════════════════════════════════
+        // RESPONSE SANITIZER — Clean $ → ₹, strip obvious hallucinations
+        // ══════════════════════════════════════════════════════════════════════
+        function sanitizeAIResponse(text) {
+            if (!text) return text;
+            // Replace dollar signs used as currency with ₹
+            // Matches patterns like $50, $1,200, $50.00, $ 500
+            let s = text.replace(/\$\s?(\d[\d,]*\.?\d*)/g, '₹$1');
+            // Catch standalone "$" next to amounts
+            s = s.replace(/USD\s?/gi, '₹');
+            return s;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // HALLUCINATION GUARD — Detect fake data when no tools were called
+        // ══════════════════════════════════════════════════════════════════════
+        const DATA_QUERY_PATTERNS = /\b(show|view|list|check|see|display|get|what are|how many|my)\b.{0,30}\b(invoice|bill|appointment|medication|prescription|health|metric|vital|lab|report|record|patient|stock|inventory|revenue|pharmacy)\b/i;
+        const HALLUCINATION_PATTERNS = /(?:Invoice\s*#\d{3,}|INV-\d+|₹?\$?\d+\.\d{2}\s*\(due|due\s*date:|amount:\s*₹?\$?\d+|Dr\.\s+[A-Z][a-z]+\s+[A-Z][a-z]+.*(?:appointment|visit))/i;
+
+        function detectHallucination(responseText, toolsRun, userMsg) {
+            // Only guard when NO tools were called AND user asked a data question
+            if (toolsRun.length > 0) return false;
+            if (!DATA_QUERY_PATTERNS.test(userMsg)) return false;
+            // If response has specific data patterns that look fabricated
+            if (HALLUCINATION_PATTERNS.test(responseText)) return true;
+            // If response contains $ currency (LLM training bias)
+            if (/\$\d/.test(responseText)) return true;
+            return false;
+        }
+
+        // Determine which tool the user's query should trigger
+        function getExpectedToolForQuery(msg, role) {
+            const m = msg.toLowerCase();
+            if (/invoice|bill|payment|billing/.test(m)) return role === 'patient' ? 'view_invoices' : 'get_invoices';
+            if (/appointment|schedule|booking/.test(m)) return role === 'patient' ? 'get_appointments' : 'get_schedule_summary';
+            if (/medication|prescription|medicine/.test(m)) return 'view_medications';
+            if (/health|metric|vital|blood|heart|weight|bp|temperature/.test(m)) return 'view_health_metrics';
+            if (/lab\s*report/.test(m)) return 'view_lab_reports';
+            if (/medical\s*record/.test(m)) return 'view_medical_records';
+            if (/inventory|stock/.test(m)) return 'search_inventory';
+            if (/pharmacy/.test(m)) return 'get_pharmacy_stock';
+            if (/revenue/.test(m)) return 'get_revenue_report';
+            if (/patient/.test(m)) return 'get_patient_list';
+            return null;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
         // AGENTIC LOOP — AI chains multiple tools autonomously
         // ══════════════════════════════════════════════════════════════════════
         const MAX_AGENT_ITERATIONS = 8;
@@ -1259,25 +1309,52 @@ exports.sendMessage = async (req, res) => {
 
             history.push({
                 role: 'user',
-                content: `[SYSTEM: TOOL RESULTS — step ${iterations}/${MAX_AGENT_ITERATIONS}]\n\n${toolMsg}\n\nINSTRUCTIONS:\n- If you need MORE data or actions to fully complete the user's request, call another tool NOW.\n- Chain tools as needed — do NOT ask the user for permission between steps.\n- When the task is COMPLETE, present a final summary. NO raw JSON. Use markdown.`
+                content: `[SYSTEM: TOOL RESULTS — step ${iterations}/${MAX_AGENT_ITERATIONS}]\n\n${toolMsg}\n\nINSTRUCTIONS:\n- If you need MORE data or actions to fully complete the user's request, call another tool NOW.\n- Chain tools as needed — do NOT ask the user for permission between steps.\n- When the task is COMPLETE, present a final summary. NO raw JSON. Use markdown.\n- CURRENCY: Use ₹ (Indian Rupees) ONLY. NEVER use $.`
             });
 
             // Continue — AI may call another tool or generate final response
             aiResponse = await ollamaService.continueAfterToolExecution(history, userRole, dbContext, bookingState);
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // POST-LOOP: Hallucination guard + auto-fix
+        // ═══════════════════════════════════════════════════════════════════
+        if (detectHallucination(aiResponse.content, allToolsExecuted, sanitizedMessage)) {
+            // The AI hallucinated data without calling a tool — force a retry
+            const expectedTool = getExpectedToolForQuery(sanitizedMessage, userRole);
+            if (expectedTool) {
+                console.warn(`⚠️ Hallucination detected! Forcing tool call: ${expectedTool}`);
+                // Directly execute the expected tool
+                const forcedResult = await executeToolCall(
+                    { function: { name: expectedTool, arguments: {} } },
+                    userId, userRole, req.models
+                );
+                allToolsExecuted.push(expectedTool);
+
+                // Feed result back to AI for a clean response
+                history.push({
+                    role: 'user',
+                    content: `[SYSTEM: CORRECTION — Your previous response contained fabricated data. Here is the REAL data from the database. Present ONLY this data to the user. Use ₹ for currency. Do NOT add any data not present below.]\n\nTool: ${expectedTool}\nResult: ${JSON.stringify(forcedResult, null, 2)}`
+                });
+                aiResponse = await ollamaService.continueAfterToolExecution(history, userRole, dbContext, bookingState);
+            }
+        }
+
+        // Final sanitization — always clean $ → ₹ 
+        const finalContent = sanitizeAIResponse(aiResponse.content);
+
         // Save conversation
         session.messages.push({ role: 'user', content: sanitizedMessage, timestamp: new Date() });
         session.messages.push({
             role: 'assistant',
-            content: aiResponse.content,
+            content: finalContent,
             timestamp: new Date(),
             ...(allToolsExecuted.length > 0 && { toolsExecuted: allToolsExecuted })
         });
         await session.save();
 
         res.json({
-            message: aiResponse.content,
+            message: finalContent,
             sessionId: session.sessionId,
             ...(allToolsExecuted.length > 0 && { toolsExecuted: allToolsExecuted }),
             ...(iterations > 1 && { agentSteps: iterations })

@@ -76,15 +76,20 @@ const runProactiveBriefings = async () => {
                         history.push({ role: 'assistant', content: '', tool_calls: [toolCall] });
                         history.push({ 
                             role: 'user', 
-                            content: `[SYSTEM: TOOL RESULTS - step ${iterations}]\n\n${toolMsg}\n\nPresent this proactive briefing beautifully and clearly.` 
+                            content: `[SYSTEM: TOOL RESULTS - step ${iterations}]\n\n${toolMsg}\n\nPresent this proactive briefing beautifully and clearly. Use ₹ (Indian Rupees) for ALL currency. NEVER use $.` 
                         });
 
                         aiResponse = await ollamaService.continueAfterToolExecution(history, user.role, dbContext, {});
                     }
 
+                    // Sanitize $ → ₹ in AI output
+                    const briefingContent = (aiResponse.content || "Morning briefing initialized.")
+                        .replace(/\$\s?(\d[\d,]*\.?\d*)/g, '₹$1')
+                        .replace(/USD\s?/gi, '₹');
+
                     session.messages.push({
                         role: 'assistant',
-                        content: aiResponse.content || "Morning briefing initialized.",
+                        content: briefingContent,
                         timestamp: new Date(),
                         toolsExecuted: allToolsExecuted
                     });

@@ -83,11 +83,18 @@ invoiceSchema.index({ patientId: 1 });
 invoiceSchema.index({ status: 1 });
 
 const medicationSchema = new mongoose.Schema({
+    id: { type: String, default: uuidv4, unique: true },
     patientId: { type: String, ref: 'User', required: true },
     doctorId: { type: String, ref: 'User' },
     name: { type: String, required: true },
     dosage: { type: String, required: true },
     frequency: { type: String, required: true },
+    time: { type: String },
+    status: { type: String, enum: ['Active', 'Completed', 'Paused', 'active', 'completed', 'paused'], default: 'Active' },
+    remaining: { type: Number, default: 0 },
+    prescribedBy: { type: String },
+    instructions: { type: String, default: '' },
+    duration: { type: String, default: '' },
     startDate: { type: Date },
     endDate: { type: Date },
     notes: { type: String, default: '' },
@@ -95,12 +102,18 @@ const medicationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const medicalRecordSchema = new mongoose.Schema({
+    id: { type: String, default: uuidv4, unique: true },
     patientId: { type: String, ref: 'User', required: true },
     doctorId: { type: String, ref: 'User' },
-    title: { type: String, required: true },
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    date: { type: Date, required: true },
+    doctorName: { type: String },
+    title: { type: String },
     description: { type: String, default: '' },
-    fileUrl: { type: String },
+    fileUrl: { type: String, default: '' },
     fileType: { type: String },
+    size: { type: String },
     recordType: { type: String, default: 'general' },
 }, { timestamps: true });
 
@@ -132,23 +145,41 @@ const healthMetricSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const pharmacyItemSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
     name: { type: String, required: true, trim: true },
     genericName: { type: String, trim: true },
     category: { type: String, required: true },
+    description: { type: String, default: '' },
     manufacturer: { type: String, trim: true },
     batchNumber: { type: String, trim: true },
     expiryDate: { type: Date },
     quantity: { type: Number, required: true, min: 0, default: 0 },
     unit: { type: String, required: true, default: 'units' },
+    price: { type: Number, min: 0, default: 0 },
     purchasePrice: { type: Number, min: 0, default: 0 },
     sellingPrice: { type: Number, min: 0, default: 0 },
     reorderLevel: { type: Number, min: 0, default: 10 },
-    location: { type: String, trim: true },
-    description: { type: String, trim: true },
+    location: { type: String, default: '' },
+    status: { type: String, enum: ['in_stock', 'low_stock', 'out_of_stock', 'expired'], default: 'in_stock' },
     isActive: { type: Boolean, default: true },
     requiresPrescription: { type: Boolean, default: false },
     addedBy: { type: String, ref: 'User' },
 }, { timestamps: true });
+
+// Auto-update pharmacy item status based on quantity and expiry
+pharmacyItemSchema.pre('save', function (next) {
+    const now = new Date();
+    if (this.expiryDate && this.expiryDate < now) {
+        this.status = 'expired';
+    } else if (this.quantity === 0) {
+        this.status = 'out_of_stock';
+    } else if (this.quantity <= this.reorderLevel) {
+        this.status = 'low_stock';
+    } else {
+        this.status = 'in_stock';
+    }
+    next();
+});
 
 const pharmacyTransactionSchema = new mongoose.Schema({
     itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'PharmacyItem', required: true },
@@ -164,25 +195,33 @@ const pharmacyTransactionSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const inventoryItemSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true },
     description: { type: String, default: '' },
     quantity: { type: Number, required: true, min: 0, default: 0 },
     unit: { type: String, default: 'units' },
+    location: { type: String, default: '' },
+    purchaseDate: { type: Date },
     purchasePrice: { type: Number, min: 0, default: 0 },
     sellingPrice: { type: Number, min: 0, default: 0 },
     reorderLevel: { type: Number, min: 0, default: 5 },
     supplier: { type: String, default: '' },
-    location: { type: String, default: '' },
+    status: { type: String, enum: ['available', 'in_use', 'maintenance', 'damaged', 'disposed', 'low_stock', 'out_of_stock'], default: 'available' },
+    assignedTo: { type: String, ref: 'User' },
+    notes: { type: String, default: '' },
     isActive: { type: Boolean, default: true },
     addedBy: { type: String, ref: 'User' },
 }, { timestamps: true });
 
 const serviceItemSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
     name: { type: String, required: true, trim: true },
-    category: { type: String, required: true },
     description: { type: String, default: '' },
-    price: { type: Number, required: true, min: 0 },
+    category: { type: String, required: true },
+    defaultPrice: { type: Number, required: true, min: 0 },
+    createdBy: { type: String, ref: 'User' },
+    isGlobal: { type: Boolean, default: false },
     duration: { type: Number, default: 30 },
     isActive: { type: Boolean, default: true },
 }, { timestamps: true });
@@ -373,7 +412,7 @@ clinicProfileSchema.index({ isSingleton: 1 }, { unique: true });
 
 // Schema version — bump this whenever schema definitions change to invalidate
 // in-process model cache and force re-registration with updated schemas.
-const SCHEMA_VERSION = 'v5'; // bumped: fixed Message+Conversation schemas to match chatController field names
+const SCHEMA_VERSION = 'v6'; // bumped: synced Medication, MedicalRecord, InventoryItem, PharmacyItem, ServiceItem schemas with standalone models — added missing fields (status, prescribedBy, id, price, etc.) that AI tools depend on
 
 const modelCache = new Map(); // `${dbName}:${SCHEMA_VERSION}` -> models object
 

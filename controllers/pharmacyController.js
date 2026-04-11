@@ -10,9 +10,10 @@ exports.addPharmacyItem = async (req, res) => {
         }
 
         const item = await PharmacyItem.create({
+            id: uuidv4(),
             name, category, description: description || '', manufacturer, batchNumber,
             expiryDate: new Date(expiryDate), quantity: quantity || 0, unit,
-            sellingPrice: price, purchasePrice: price, reorderLevel: reorderLevel || 10, location: location || ''
+            price, sellingPrice: price, purchasePrice: price, reorderLevel: reorderLevel || 10, location: location || ''
         });
 
         res.status(201).json({ message: 'Pharmacy item added successfully', item });
