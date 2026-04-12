@@ -36,17 +36,24 @@ const runProactiveBriefings = async () => {
             const models = getModels(tenantConn, clinic.dbName);
             const { User, AiChatSession } = models;
             
-            const targetUsers = await User.find({ role: { $in: ['doctor', 'admin', 'clinic_admin'] } });
+            const targetUsers = await User.find({ role: { $in: ['doctor', 'admin', 'clinic_admin', 'patient'] } });
 
             for (const user of targetUsers) {
                 try {
-                    const internalPrompt = "Wake up agent! Execute my full morning briefing proactively.";
+                    const isPatient = user.role === 'patient';
+                    const internalPrompt = isPatient 
+                        ? "Wake up agent! Execute my full patient health summary proactively." 
+                        : "Wake up agent! Execute my full morning briefing proactively.";
+                    const chatTitle = isPatient 
+                        ? `☀️ Daily Health Summary: ${new Date().toLocaleDateString()}` 
+                        : `☀️ Auto Briefing: ${new Date().toLocaleDateString()}`;
+                    
                     const dbContext = await loadDatabaseContext(models, user.role);
 
                     const session = await AiChatSession.create({ 
                         sessionId: uuidv4(),
                         userId: user.id, 
-                        title: `☀️ Auto Briefing: ${new Date().toLocaleDateString()}`, 
+                        title: chatTitle, 
                         messages: [{ role: 'user', content: internalPrompt, timestamp: new Date() }], 
                         bookingState: { doctor: null, date: null, time: null, reason: null } 
                     });
@@ -94,6 +101,18 @@ const runProactiveBriefings = async () => {
                         toolsExecuted: allToolsExecuted
                     });
                     await session.save();
+
+                    // Push FCM Notification to Device
+                    if (user.fcmToken) {
+                        const { sendMessageNotification } = require('./pushNotificationService');
+                        await sendMessageNotification(user.fcmToken, {
+                            senderId: 'medbeacon_agent',
+                            senderName: 'MedBeacon AI',
+                            messageText: isPatient ? "Your Daily Health Summary is ready for review!" : "Your Morning Briefing is ready for review!",
+                            conversationId: session.sessionId,
+                            patientId: user.id
+                        });
+                    }
 
                     console.log(`✅ Autonomous briefing delivered for ${user.email} -> Session: ${session.sessionId}`);
                 } catch (userErr) {

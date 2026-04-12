@@ -21,5 +21,12 @@ router.delete('/sessions/:sessionId', authMiddleware, logPhiAccess('ai_chat'), d
 // Chat Message
 router.post('/message', authMiddleware, logPhiAccess('ai_chat'), sendMessage);
 
+// Manual Autonomous Trigger (For Testing)
+router.post('/trigger-autonomy', authMiddleware, async (req, res) => {
+    const { runProactiveBriefings } = require('../services/autonomousCronJob');
+    runProactiveBriefings(); // Run asynchronously in background
+    res.json({ message: '🤖 Autonomous agent awakened! It is now running background tasks and will ping your chat shortly.' });
+});
+
 module.exports = router;
 
