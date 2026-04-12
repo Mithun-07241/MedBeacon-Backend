@@ -45,6 +45,15 @@ const appointmentSchema = new mongoose.Schema({
     rating: { type: Number, min: 1, max: 5 },
     feedback: { type: String, default: '' },
     rated: { type: Boolean, default: false },
+    rescheduleOffer: {
+        date: { type: String, default: '' },
+        time: { type: String, default: '' },
+        status: {
+            type: String,
+            enum: ['pending', 'accepted', 'declined', ''],
+            default: ''
+        }
+    },
 }, { timestamps: true });
 
 const invoiceItemSchema = new mongoose.Schema({
@@ -238,19 +247,22 @@ const alertSchema = new mongoose.Schema({
 
 const activityLogSchema = new mongoose.Schema({
     userId: { type: String, ref: 'User' },
+    adminEmail: { type: String, default: '' },
     action: { type: String, required: true },
     details: { type: String, default: '' },
     ipAddress: { type: String },
     userAgent: { type: String },
+    timestamp: { type: Date, default: Date.now },
 }, { timestamps: true });
 
 const announcementSchema = new mongoose.Schema({
     title: { type: String, required: true },
     message: { type: String, required: true },
-    targetAudience: { type: String, enum: ['all', 'doctors', 'patients'], default: 'all' },
-    priority: { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal' },
+    targetAudience: { type: String, enum: ['all', 'doctors', 'patients', 'verified_doctors'], default: 'all' },
+    priority: { type: String, enum: ['low', 'normal', 'medium', 'high', 'urgent'], default: 'normal' },
     createdBy: { type: String, ref: 'User' },
     isActive: { type: Boolean, default: true },
+    sentAt: { type: Date, default: Date.now },
 }, { timestamps: true });
 
 // Matches chatController.js: doctorId/patientId/sender/text
@@ -289,28 +301,66 @@ const callSchema = new mongoose.Schema({
 
 const doctorDetailSchema = new mongoose.Schema({
     userId: { type: String, ref: 'User', required: true, unique: true },
+    firstName: { type: String },
+    lastName: { type: String },
+    dateOfBirth: { type: String },
+    phoneNumber: { type: String },
+    address: { type: String },
+    medicalLicense: { type: String },
     specialization: { type: String },
     qualification: { type: String },
-    experience: { type: Number, default: 0 },
-    licenseNumber: { type: String },
+    hospitalAffiliation: { type: String },
     hospital: { type: String },
+    proofFileUrl: { type: String },
+    profilePicUrl: { type: String },
+    experience: { type: String },
+    gender: { type: String },
     bio: { type: String, default: '' },
+    education: { type: String },
+    graduationYear: { type: String },
+    certifications: { type: String },
+    languages: { type: String },
     consultationFee: { type: Number, default: 0 },
+    availability: { type: String, enum: ['available', 'busy', 'unavailable'], default: 'available' },
+    weeklySchedule: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {
+            Mon: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Tue: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Wed: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Thu: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Fri: { open: true, start: '09:00 AM', end: '05:00 PM' },
+            Sat: { open: false, start: '', end: '' },
+            Sun: { open: false, start: '', end: '' }
+        }
+    },
+    expertise: { type: [String] },
     availableDays: [{ type: String }],
     availableTime: { type: String },
     rating: { type: Number, default: 0 },
     totalRatings: { type: Number, default: 0 },
+    verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
 }, { timestamps: true });
 
 const patientDetailSchema = new mongoose.Schema({
     userId: { type: String, ref: 'User', required: true, unique: true },
-    dateOfBirth: { type: Date },
-    gender: { type: String },
-    bloodGroup: { type: String },
-    allergies: [{ type: String }],
-    emergencyContact: { type: String },
+    firstName: { type: String },
+    lastName: { type: String },
+    dateOfBirth: { type: String },
+    phoneNumber: { type: String },
     address: { type: String, default: '' },
+    allergies: { type: String },
+    treatmentFileUrl: { type: String },
+    profilePicUrl: { type: String },
+    age: { type: String },
+    gender: { type: String },
+    bio: { type: String },
+    emergencyContactName: { type: String },
+    emergencyContactPhone: { type: String },
+    bloodType: { type: String },
+    bloodGroup: { type: String },
     medicalHistory: { type: String, default: '' },
+    emergencyContact: { type: String },
 }, { timestamps: true });
 
 const emailPreferenceSchema = new mongoose.Schema({
@@ -412,7 +462,7 @@ clinicProfileSchema.index({ isSingleton: 1 }, { unique: true });
 
 // Schema version — bump this whenever schema definitions change to invalidate
 // in-process model cache and force re-registration with updated schemas.
-const SCHEMA_VERSION = 'v6'; // bumped: synced Medication, MedicalRecord, InventoryItem, PharmacyItem, ServiceItem schemas with standalone models — added missing fields (status, prescribedBy, id, price, etc.) that AI tools depend on
+const SCHEMA_VERSION = 'v7'; // bumped: synced DoctorDetail, PatientDetail, Announcement, ActivityLog schemas with standalone models — added firstName, lastName, phoneNumber, etc. that AI tools depend on
 
 const modelCache = new Map(); // `${dbName}:${SCHEMA_VERSION}` -> models object
 

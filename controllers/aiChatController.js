@@ -286,9 +286,9 @@ async function viewAnnouncements(args, userId, userRole, models) {
         if (userRole === 'patient') query.$or.push({ targetAudience: 'patients' });
         else if (userRole === 'doctor') { query.$or.push({ targetAudience: 'doctors' }); query.$or.push({ targetAudience: 'verified_doctors' }); }
         else query.$or = undefined; // admin sees all
-        const announcements = await models.Announcement.find(query?.$or ? query : {}).sort({ sentAt: -1 }).limit(10).lean();
+        const announcements = await models.Announcement.find(query?.$or ? query : {}).sort({ createdAt: -1 }).limit(10).lean();
         if (!announcements.length) return { success: true, message: 'No announcements.', announcements: [] };
-        return { success: true, message: `${announcements.length} announcement(s)`, announcements: announcements.map(a => ({ title: a.title, message: a.message, priority: a.priority, date: a.sentAt ? new Date(a.sentAt).toISOString().split('T')[0] : 'N/A', audience: a.targetAudience })) };
+        return { success: true, message: `${announcements.length} announcement(s)`, announcements: announcements.map(a => ({ title: a.title, message: a.message, priority: a.priority, date: a.sentAt ? new Date(a.sentAt).toISOString().split('T')[0] : (a.createdAt ? new Date(a.createdAt).toISOString().split('T')[0] : 'N/A'), audience: a.targetAudience })) };
     } catch (e) { return { success: false, error: 'Could not fetch announcements.' }; }
 }
 
@@ -580,9 +580,19 @@ async function createService(args, userId, models) {
 
 async function getPatientList(args, userId, userRole, models) {
     try { const query = {};
-        if (args.search) query.$or = [{ firstName: { $regex: args.search, $options: 'i' } }, { lastName: { $regex: args.search, $options: 'i' } }];
+        if (args.search) {
+            const searchRegex = { $regex: args.search, $options: 'i' };
+            query.$or = [{ firstName: searchRegex }, { lastName: searchRegex }];
+        }
         const patients = await models.PatientDetail.find(query).limit(20).lean();
         const list = await Promise.all(patients.map(async p => { const u = await models.User.findOne({ id: p.userId }); return { id: p.userId, name: p.firstName && p.lastName ? `${p.firstName} ${p.lastName}` : u?.username || 'Patient', email: u?.email || 'N/A', phone: p.phoneNumber || 'N/A', gender: p.gender || 'N/A' }; }));
+        // If search was used and no results from PatientDetail, also try searching by User.username
+        if (args.search && list.length === 0) {
+            const userQuery = { role: 'patient', $or: [{ username: { $regex: args.search, $options: 'i' } }, { email: { $regex: args.search, $options: 'i' } }] };
+            const users = await models.User.find(userQuery).limit(20).lean();
+            const fallbackList = await Promise.all(users.map(async u => { const pd = await models.PatientDetail.findOne({ userId: u.id }).lean(); return { id: u.id, name: pd?.firstName && pd?.lastName ? `${pd.firstName} ${pd.lastName}` : u.username, email: u.email || 'N/A', phone: pd?.phoneNumber || 'N/A', gender: pd?.gender || 'N/A' }; }));
+            return { success: true, message: fallbackList.length ? `${fallbackList.length} patient(s)` : 'No patients.', patients: fallbackList };
+        }
         return { success: true, message: list.length ? `${list.length} patient(s)` : 'No patients.', patients: list };
     } catch (e) { return { success: false, error: 'Could not fetch patients.' }; }
 }
@@ -687,15 +697,19 @@ async function getAllAppointments(args, models) {
 async function sendAnnouncement(args, userId, models) {
     try { const { title, message, targetAudience, priority } = args;
         if (!title || !message) return { success: false, error: 'Provide title and message.' };
-        const announcement = await models.Announcement.create({ id: uuidv4(), title, message, targetAudience: targetAudience || 'all', priority: priority || 'medium', createdBy: userId });
+        // Map 'medium' to 'normal' if the AI sends 'medium' (schema uses 'normal')
+        const mappedPriority = priority === 'medium' ? 'normal' : (priority || 'normal');
+        const announcement = await models.Announcement.create({ id: uuidv4(), title, message, targetAudience: targetAudience || 'all', priority: mappedPriority, createdBy: userId, sentAt: new Date() });
         return { success: true, message: `📢 Announcement "${title}" sent to ${targetAudience || 'all'}!` };
     } catch (e) { return { success: false, error: 'Failed to send announcement.' }; }
 }
 
 async function getActivityLogs(args, models) {
-    try { const logs = await models.ActivityLog.find({}).sort({ timestamp: -1 }).limit(args.limit || 20).lean();
+    try { const query = {};
+        if (args.action) query.action = new RegExp(args.action, 'i');
+        const logs = await models.ActivityLog.find(query).sort({ createdAt: -1 }).limit(args.limit || 20).lean();
         if (!logs.length) return { success: true, message: 'No activity logs.', logs: [] };
-        return { success: true, message: `${logs.length} log(s)`, logs: logs.map(l => ({ action: l.action, email: l.adminEmail, details: l.details, date: l.timestamp ? new Date(l.timestamp).toISOString().split('T')[0] : 'N/A' })) };
+        return { success: true, message: `${logs.length} log(s)`, logs: logs.map(l => ({ action: l.action, email: l.adminEmail || 'N/A', details: l.details, date: l.timestamp ? new Date(l.timestamp).toISOString().split('T')[0] : (l.createdAt ? new Date(l.createdAt).toISOString().split('T')[0] : 'N/A') })) };
     } catch (e) { return { success: false, error: 'Could not fetch logs.' }; }
 }
 
@@ -747,7 +761,7 @@ async function getPatientById(args, userId, userRole, models) {
                 id: user.id, username: user.username, email: user.email,
                 firstName: details?.firstName, lastName: details?.lastName,
                 age: details?.age, gender: details?.gender,
-                phone: details?.phoneNumber, bloodType: details?.bloodType,
+                phone: details?.phoneNumber, bloodType: details?.bloodType || details?.bloodGroup,
                 allergies: details?.allergies, address: details?.address,
                 medicalHistory: details?.medicalHistory
             }
@@ -928,7 +942,7 @@ const P = { p: 'patient', d: 'doctor', a: 'admin', c: 'clinic_admin' };
 const TOOL_PERMISSIONS = {
     // Patient
     book_appointment: [P.p], get_appointments: [P.p], cancel_appointment: [P.p], rate_appointment: [P.p],
-    reschedule_appointment: [P.p],
+    reschedule_appointment: [P.p, P.d],
     view_medications: [P.p], view_health_metrics: [P.p], add_health_metric: [P.p],
     view_lab_reports: [P.p], view_medical_records: [P.p],
     view_invoices: [P.p], submit_payment_ref: [P.p],
@@ -1114,6 +1128,7 @@ async function executeToolCall(toolCall, userId, userRole, models) {
             case 'reschedule_appointment':
                 if (userRole === 'patient') return await rescheduleAppointmentPatient(parsedArgs, userId, models);
                 else return await rescheduleAppointmentDoctor(parsedArgs, userId, models);
+            case 'reschedule_appointment_doctor': return await rescheduleAppointmentDoctor(parsedArgs, userId, models);
             case 'get_doctor_info': return await getDoctorInfo(parsedArgs, models);
             case 'view_medications': return await viewMedications(parsedArgs, userId, models);
             case 'view_health_metrics': return await viewHealthMetrics(parsedArgs, userId, models);
