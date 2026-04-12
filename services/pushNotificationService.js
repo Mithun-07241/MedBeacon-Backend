@@ -207,6 +207,15 @@ const sendMessageNotification = async (fcmToken, messageData) => {
                         category: 'MESSAGE'
                     }
                 }
+            },
+            webpush: {
+                notification: {
+                    vibrate: [200, 100, 200],
+                    icon: '/favicon.ico'
+                },
+                fcmOptions: {
+                    link: '/chat'
+                }
             }
         };
 
@@ -282,6 +291,15 @@ const sendAnnouncementNotification = async (fcmTokens, announcementData) => {
                         'thread-id': 'announcements'
                     }
                 }
+            },
+            webpush: {
+                notification: {
+                    vibrate: [200, 100, 200],
+                    icon: '/favicon.ico'
+                },
+                fcmOptions: {
+                    link: '/dashboard'
+                }
             }
         };
 
@@ -308,10 +326,63 @@ const sendAnnouncementNotification = async (fcmTokens, announcementData) => {
     }
 };
 
+/**
+ * Send a generic system notification
+ * @param {string} fcmToken - User's FCM device token
+ * @param {object} sysData - System event details
+ */
+const sendSystemNotification = async (fcmToken, sysData) => {
+    if (!firebaseInitialized || !fcmToken) return;
+
+    try {
+        const { title, body, action, referenceId } = sysData;
+        const message = {
+            token: fcmToken,
+            notification: {
+                title: title,
+                body: body.substring(0, 100),
+            },
+            data: {
+                type: 'system_alert',
+                action: action || '',
+                referenceId: referenceId || '',
+                timestamp: Date.now().toString()
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'system_alerts',
+                    priority: 'high',
+                    defaultSound: true,
+                    defaultVibrateTimings: true,
+                    tag: referenceId || 'sys'
+                }
+            },
+            apns: {
+                payload: {
+                    aps: { sound: 'default', badge: 1, category: 'SYSTEM' }
+                }
+            },
+            webpush: {
+                notification: { vibrate: [200, 100, 200], icon: '/favicon.ico' },
+                fcmOptions: { link: '/dashboard' }
+            }
+        };
+
+        const response = await admin.messaging().send(message);
+        console.log(`✅ System notification [${title}] sent successfully`);
+        return response;
+    } catch (e) {
+        console.error('❌ Failed to send system notification:', e.message);
+        return null;
+    }
+};
+
 module.exports = {
     sendCallNotification,
     sendMissedCallNotification,
     sendCallEndedNotification,
     sendMessageNotification,
-    sendAnnouncementNotification
+    sendAnnouncementNotification,
+    sendSystemNotification
 };

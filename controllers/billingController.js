@@ -92,6 +92,16 @@ exports.createInvoice = async (req, res) => {
             status: ['draft', 'sent'].includes(bodyStatus) ? bodyStatus : 'draft'
         });
 
+        // 🔔 Notify Patient if sent immediately
+        if (invoice.status === 'sent' && patient.fcmToken) {
+            const push = require('../services/pushNotificationService');
+            push.sendSystemNotification(patient.fcmToken, {
+                title: '🧾 New Invoice Available',
+                body: `A new invoice for ₹${invoice.total} is awaiting payment.`,
+                referenceId: invoice.id
+            });
+        }
+
         res.status(201).json({ message: 'Invoice created successfully', invoice });
     } catch (error) {
         console.error('Create Invoice Error:', error);
@@ -188,10 +198,25 @@ exports.updateInvoice = async (req, res) => {
         if (discount !== undefined) invoice.discount = discount;
         if (dueDate) invoice.dueDate = new Date(dueDate);
         if (notes !== undefined) invoice.notes = notes;
+        const oldStatus = invoice.status;
         if (status && ['draft', 'sent', 'cancelled'].includes(status)) invoice.status = status;
 
         invoice.total = invoice.subtotal + invoice.tax - invoice.discount;
         await invoice.save();
+
+        // 🔔 Notify Patient if status changed to sent
+        if (status === 'sent' && oldStatus !== 'sent') {
+            const { User } = req.models;
+            const patient = await User.findOne({ id: invoice.patientId });
+            if (patient && patient.fcmToken) {
+                const push = require('../services/pushNotificationService');
+                push.sendSystemNotification(patient.fcmToken, {
+                    title: '🧾 New Invoice Issued',
+                    body: `A new invoice for ₹${invoice.total} is awaiting payment.`,
+                    referenceId: invoice.id
+                });
+            }
+        }
 
         res.json({ message: 'Invoice updated successfully', invoice });
     } catch (error) {

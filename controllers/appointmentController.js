@@ -99,6 +99,18 @@ exports.createAppointment = async (req, res) => {
             status: 'pending'
         });
 
+        // 🔔 Notify Doctor
+        const { User } = req.models;
+        const doctor = await User.findOne({ id: doctorId });
+        if (doctor && doctor.fcmToken) {
+            const push = require('../services/pushNotificationService');
+            push.sendSystemNotification(doctor.fcmToken, {
+                title: '📅 New Appointment Request',
+                body: `New appointment requested for ${date} at ${time}.`,
+                referenceId: appointment._id.toString()
+            });
+        }
+
         res.status(201).json(appointment);
     } catch (error) {
         res.status(500).json({ error: 'Failed to create appointment' });
@@ -121,10 +133,26 @@ exports.updateAppointment = async (req, res) => {
         const allowedStatuses = role === 'patient' ? ['cancelled'] : ['confirmed', 'rejected', 'completed', 'cancelled'];
         if (status && !allowedStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status update' });
 
+        const oldStatus = appointment.status;
         if (status) appointment.status = status;
         if (notes !== undefined) appointment.notes = notes;
 
         await appointment.save();
+
+        // 🔔 Notify Patient
+        if (status && status !== oldStatus && role !== 'patient') {
+            const { User } = req.models;
+            const patient = await User.findOne({ id: appointment.patientId });
+            if (patient && patient.fcmToken) {
+                const push = require('../services/pushNotificationService');
+                push.sendSystemNotification(patient.fcmToken, {
+                    title: `📅 Appointment ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+                    body: `Your appointment on ${appointment.date} has been ${status}.`,
+                    referenceId: appointment._id.toString()
+                });
+            }
+        }
+
         res.json(appointment);
     } catch (error) {
         res.status(500).json({ error: 'Failed update' });
@@ -260,6 +288,18 @@ exports.offerReschedule = async (req, res) => {
         appointment.notes = notes || 'Doctor offered a reschedule';
         appointment.rescheduleOffer = { date, time, status: 'pending' };
         await appointment.save();
+
+        // 🔔 Notify Patient
+        const { User } = req.models;
+        const patient = await User.findOne({ id: appointment.patientId });
+        if (patient && patient.fcmToken) {
+            const push = require('../services/pushNotificationService');
+            push.sendSystemNotification(patient.fcmToken, {
+                title: '🔄 Reschedule Offer',
+                body: `Doctor offered a new time: ${date} at ${time}.`,
+                referenceId: appointment._id.toString()
+            });
+        }
 
         res.json({ message: 'Appointment cancelled with reschedule offer', appointment });
     } catch (error) {

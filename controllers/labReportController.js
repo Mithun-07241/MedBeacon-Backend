@@ -81,6 +81,16 @@ exports.createLabReport = async (req, res) => {
             status: status || 'draft',
         });
 
+        // 🔔 Notify Patient if report is sent immediately
+        if (report.status === 'sent' && patient.fcmToken) {
+            const push = require('../services/pushNotificationService');
+            push.sendSystemNotification(patient.fcmToken, {
+                title: '📋 Lab Report Available',
+                body: `Your results for ${report.testName} are now ready to view.`,
+                referenceId: report.id
+            });
+        }
+
         res.status(201).json({ message: 'Lab report created successfully', report });
     } catch (error) {
         console.error('Create Lab Report Error:', error);
@@ -163,9 +173,25 @@ exports.updateLabReport = async (req, res) => {
         if (results && Array.isArray(results) && results.length > 0) report.results = results;
         if (notes !== undefined) report.notes = notes;
         if (reportDate) report.reportDate = new Date(reportDate);
+        const oldStatus = report.status;
         if (status && ['draft', 'sent'].includes(status)) report.status = status;
 
         await report.save();
+
+        // 🔔 Notify Patient if status changed to sent
+        if (status === 'sent' && oldStatus !== 'sent') {
+            const { User } = req.models;
+            const patient = await User.findOne({ id: report.patientId });
+            if (patient && patient.fcmToken) {
+                const push = require('../services/pushNotificationService');
+                push.sendSystemNotification(patient.fcmToken, {
+                    title: '📋 Lab Report Published',
+                    body: `Your results for ${report.testName} are now finalized.`,
+                    referenceId: report.id
+                });
+            }
+        }
+
         res.json({ message: 'Lab report updated', report });
     } catch (error) {
         console.error('Update Lab Report Error:', error);
