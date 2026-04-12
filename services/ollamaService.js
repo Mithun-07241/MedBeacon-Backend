@@ -42,11 +42,11 @@ INVENTORY & PHARMACY:
 - get_low_stock_alerts: List items with critically low stock
 - get_expiring_items: List pharmacy items expiring soon (optional: days, default 30)
 - add_inventory_item: Add a new inventory item (requires: name, category, quantity, unit, purchasePrice)
-- update_inventory_item: Update an existing inventory item (requires: itemId, and fields to update)
+- update_inventory_item: Update an existing inventory item (requires: itemId, and optional fields to update like name/quantity/price)
 - delete_inventory_item: Delete an inventory item (requires: itemId)
 - get_pharmacy_stock: Search pharmacy stock (optional: category, search)
 - add_pharmacy_item: Add a new pharmacy medicine (requires: name, category, manufacturer, batchNumber, expiryDate, unit, price, quantity)
-- update_pharmacy_item: Update a pharmacy item (requires: itemId, fields to update)
+- update_pharmacy_item: Update a pharmacy item (requires: itemId, and optional fields to update like name/quantity/price)
 - record_pharmacy_transaction: Record stock transaction (requires: itemId, type: purchase/sale/return/expired/adjustment, quantity)
 
 PATIENTS & APPOINTMENTS:
@@ -99,11 +99,11 @@ INVENTORY & PHARMACY:
 - get_low_stock_alerts: List items with critically low stock
 - get_expiring_items: List pharmacy items expiring soon (optional: days, default 30)
 - add_inventory_item: Add a new inventory item (requires: name, category, quantity, unit, purchasePrice)
-- update_inventory_item: Update an existing inventory item (requires: itemId, and fields to update)
+- update_inventory_item: Update an existing inventory item (requires: itemId, and optional fields to update like name/quantity/price)
 - delete_inventory_item: Delete an inventory item (requires: itemId)
 - get_pharmacy_stock: Search pharmacy stock (optional: category, search)
 - add_pharmacy_item: Add a new pharmacy medicine (requires: name, category, manufacturer, batchNumber, expiryDate, unit, price, quantity)
-- update_pharmacy_item: Update a pharmacy item (requires: itemId, fields to update)
+- update_pharmacy_item: Update a pharmacy item (requires: itemId, and optional fields to update like name/quantity/price)
 - record_pharmacy_transaction: Record stock transaction (requires: itemId, type: purchase/sale/return/expired/adjustment, quantity)
 
 PLATFORM & USERS:

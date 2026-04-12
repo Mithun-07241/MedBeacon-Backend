@@ -94,8 +94,9 @@ function updateBookingState(existing, currentMessage, dbContext) {
             const iso = t.match(/\b(\d{4}-\d{2}-\d{2})\b/); if (iso) state.date = iso[1];
             else { const dmy = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/); if (dmy) { const d = new Date(`${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`); if (!isNaN(d)) state.date = d.toISOString().split('T')[0]; }
             else { const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
-                const mm = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i) || t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
-                if (mm) { const day = mm[1]||mm[2]; const mon = (mm[2]||mm[1]).toLowerCase(); const idx = months.indexOf(mon); if (idx >= 0) state.date = `${today.getFullYear()}-${String(idx+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`; }
+                const mm1 = t.match(/(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i);
+                const mm2 = t.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})/i);
+                if (mm1 || mm2) { const mm = mm1 || mm2; const isMm1 = !!mm1; const day = isMm1 ? mm[1] : mm[2]; const mon = (isMm1 ? mm[2] : mm[1]).toLowerCase(); const idx = months.indexOf(mon); if (idx >= 0) state.date = `${today.getFullYear()}-${String(idx+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`; }
                 else { const ord = t.match(/\b(\d{1,2})(?:st|nd|rd|th)\b/); if (ord) { const day = parseInt(ord[1]); if (day >= 1 && day <= 31) { let d = new Date(today.getFullYear(), today.getMonth(), day); d.setHours(0,0,0,0); if (d < today) d = new Date(today.getFullYear(), today.getMonth()+1, day); state.date = d.toISOString().split('T')[0]; } } } } }
         }
     }
@@ -104,7 +105,10 @@ function updateBookingState(existing, currentMessage, dbContext) {
         if (/\bany\s*time\b|\banytime\b/i.test(t)) state.time = '10:00 AM';
         else { const hhmm = t.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
             if (hhmm) { let h = parseInt(hhmm[1]); const m = hhmm[2]; const ampm = hhmm[3]; if (ampm) { if (ampm.toLowerCase()==='pm'&&h<12) h+=12; if (ampm.toLowerCase()==='am'&&h===12) h=0; } const p = h>=12?'PM':'AM'; const h12 = h>12?h-12:(h===0?12:h); state.time = `${String(h12).padStart(2,'0')}:${m} ${p}`; }
-            else { const simple = t.match(/\b(\d{1,2})\s*(am|pm)\b/i); if (simple) { let h = parseInt(simple[1]); const p = simple[2].toLowerCase(); if (p==='pm'&&h<12) h+=12; if (p==='am'&&h===12) h=0; const period = h>=12?'PM':'AM'; const h12 = h>12?h-12:(h===0?12:h); state.time = `${String(h12).padStart(2,'0')}:00 ${period}`; } } }
+            else { const simple = t.match(/\b(\d{1,2})\s*(am|pm)\b/i); if (simple) { let h = parseInt(simple[1]); const p = simple[2].toLowerCase(); if (p==='pm'&&h<12) h+=12; if (p==='am'&&h===12) h=0; const period = h>=12?'PM':'AM'; const h12 = h>12?h-12:(h===0?12:h); state.time = `${String(h12).padStart(2,'0')}:00 ${period}`; }
+            else if (/\bafternoon\b/i.test(t)) state.time = '02:00 PM';
+            else if (/\bevening\b/i.test(t)) state.time = '06:00 PM';
+            else if (/\bmorning\b/i.test(t)) state.time = '09:00 AM'; } }
     }
 
     if (!state.reason) {
