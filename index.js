@@ -44,6 +44,7 @@ const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const appointmentRoutes = require("./routes/appointmentRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+const messageRoutes = require("./routes/messageRoutes");
 const dataRoutes = require("./routes/dataRoutes");
 const medicationRoutes = require("./routes/medicationRoutes");
 const medicalRecordRoutes = require("./routes/medicalRecordRoutes");
@@ -145,6 +146,7 @@ app.use("/api", authLimiter, authRoutes); // /api/signup, /api/login, /api/me
 app.use("/api", userRoutes); // /api/profile/*, /api/patients, /api/doctors
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/messages", messageRoutes);
 app.use("/api", dataRoutes); // /api/symptoms, /api/alerts
 app.use("/api/medications", medicationRoutes);
 app.use("/api/records", medicalRecordRoutes);

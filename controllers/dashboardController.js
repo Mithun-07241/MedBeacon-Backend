@@ -52,14 +52,16 @@ exports.getDoctorSummary = async (req, res) => {
         ]);
 
         res.json({
-            summary: {
-                totalAppointments,
-                pendingAppointments,
-                todayAppointments,
-                upcomingAppointments,
-                totalPatients
-            },
-            recentAppointments
+            totalPatients: totalPatients || 0,
+            appointmentsToday: todayAppointments || 0,
+            pendingRecords: pendingAppointments || 0,
+            recentPatients: recentAppointments.map(a => ({
+                id: a.patientId,
+                name: a.patientName || "Unknown Patient",
+                lastVisit: a.date,
+                condition: "Consultation",
+                avatarUrl: null
+            }))
         });
     } catch (error) {
         console.error('Get Doctor Summary Error:', error);
