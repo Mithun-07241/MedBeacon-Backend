@@ -60,13 +60,17 @@ const initSocket = (server) => {
         socket.on("callUser", (data) => {
             const socketId = onlineUsers.get(data.userToCall);
             if (socketId) {
-                // Forward all data (signal, from, name, isVideo, etc.)
+                // Forward all signaling data to the receiver
                 io.to(socketId).emit("callUser", {
-                    signal: data.signalData,
-                    from: data.from,
-                    name: data.name,
-                    isVideo: data.isVideo
+                    signal:     data.signalData,
+                    from:       data.from,
+                    name:       data.name,
+                    profilePic: data.profilePic || null,
+                    isVideo:    data.isVideo
                 });
+            } else {
+                // Receiver offline — notify caller
+                socket.emit("callUser-failed", { reason: "offline", userToCall: data.userToCall });
             }
         });
 
