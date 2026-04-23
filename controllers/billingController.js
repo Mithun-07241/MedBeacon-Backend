@@ -131,15 +131,45 @@ exports.getInvoices = async (req, res) => {
         const patientMap = {};
         patients.forEach(p => { patientMap[p.id] = p; });
 
-        const enrichedInvoices = invoices.map(inv => ({ ...inv, patient: patientMap[inv.patientId] || null }));
+        const enrichedInvoices = invoices.map(inv => ({
+            ...inv,
+            amount: inv.total,
+            date: inv.createdAt,
+            patientName: patientMap[inv.patientId]?.username || 'Unknown Patient'
+        }));
+
+        const totalAmount = invoices.reduce((sum, i) => sum + i.total, 0);
+        const paidAmount = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total, 0);
+
+        // Generate Revenue Trend (Last 6 months)
+        const revenueTrend = [];
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const now = new Date();
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthLabel = monthNames[d.getMonth()];
+            const monthlyRevenue = invoices
+                .filter(inv => {
+                    const invDate = new Date(inv.createdAt);
+                    return inv.status === 'paid' &&
+                           invDate.getMonth() === d.getMonth() &&
+                           invDate.getFullYear() === d.getFullYear();
+                })
+                .reduce((sum, inv) => sum + inv.total, 0);
+
+            revenueTrend.push({
+                label: monthLabel,
+                revenue: monthlyRevenue,
+                isActive: i === 0
+            });
+        }
 
         const stats = {
-            total: invoices.length,
-            draft: invoices.filter(i => i.status === 'draft').length,
-            sent: invoices.filter(i => i.status === 'sent').length,
-            paid: invoices.filter(i => i.status === 'paid').length,
-            totalAmount: invoices.reduce((sum, i) => sum + i.total, 0),
-            paidAmount: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total, 0)
+            totalInvoices: invoices.length,
+            paidAmount: paidAmount,
+            pendingAmount: totalAmount - paidAmount,
+            collectionRate: totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : 0,
+            revenueTrend: revenueTrend
         };
 
         res.json({ invoices: enrichedInvoices, stats });
@@ -259,10 +289,25 @@ exports.getPatientInvoices = async (req, res) => {
         const doctorMap = {};
         doctors.forEach(d => { doctorMap[d.id] = d; });
 
-        const enriched = invoices.map(inv => ({ ...inv, doctor: doctorMap[inv.doctorId] || null }));
+        const enriched = invoices.map(inv => ({
+            ...inv,
+            amount: inv.total,
+            date: inv.createdAt,
+            doctorName: doctorMap[inv.doctorId]?.username || 'Doctor'
+        }));
 
-        const pendingCount = invoices.filter(i => i.status === 'sent').length;
-        res.json({ invoices: enriched, pendingCount });
+        const totalAmount = invoices.reduce((sum, i) => sum + i.total, 0);
+        const paidAmount = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total, 0);
+
+        const stats = {
+            totalInvoices: invoices.length,
+            paidAmount: paidAmount,
+            pendingAmount: totalAmount - paidAmount,
+            collectionRate: totalAmount > 0 ? Math.round((paidAmount / totalAmount) * 100) : 0,
+            revenueTrend: [] // Trend usually not needed for patient view
+        };
+
+        res.json({ invoices: enriched, stats });
     } catch (error) {
         console.error('Get Patient Invoices Error:', error);
         res.status(500).json({ error: 'Failed to fetch your invoices' });

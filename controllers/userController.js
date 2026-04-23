@@ -188,7 +188,14 @@ exports.updateProfile = async (req, res) => {
         delete updateData.createdAt;
         delete updateData.updatedAt;
 
-        ['firstName', 'lastName', 'dateOfBirth', 'phoneNumber', 'address', 'allergies', 'specialization', 'experience', 'gender', 'bio', 'education', 'certifications', 'hospital', 'languages'].forEach(field => {
+        // Filter out null or empty string values to avoid overwriting with empty data
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === null || updateData[key] === undefined || updateData[key] === '') {
+                delete updateData[key];
+            }
+        });
+
+        ['firstName', 'lastName', 'dateOfBirth', 'phoneNumber', 'address', 'allergies', 'specialization', 'experience', 'gender', 'bio', 'education', 'certifications', 'hospital', 'languages', 'graduationYear', 'hospitalAffiliation'].forEach(field => {
             if (updateData[field] && typeof updateData[field] === 'string') {
                 updateData[field] = updateData[field].trim();
             }
@@ -201,9 +208,9 @@ exports.updateProfile = async (req, res) => {
         if (updateData.lastName) userUpdates.lastName = updateData.lastName;
 
         if (role === 'patient') {
-            updated = await PatientDetail.findOneAndUpdate({ userId }, updateData, { new: true, runValidators: true });
+            updated = await PatientDetail.findOneAndUpdate({ userId }, updateData, { new: true, runValidators: true, upsert: true });
         } else if (role === 'doctor') {
-            updated = await DoctorDetail.findOneAndUpdate({ userId }, updateData, { new: true, runValidators: true });
+            updated = await DoctorDetail.findOneAndUpdate({ userId }, updateData, { new: true, runValidators: true, upsert: true });
         } else {
             return res.status(400).json({ error: 'Invalid role' });
         }

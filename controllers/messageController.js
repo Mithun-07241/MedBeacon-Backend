@@ -79,7 +79,7 @@ exports.getMessages = async (req, res) => {
 
         const formattedMessages = decryptedMessages.map(m => ({
             id: m._id.toString(),
-            senderId: m.sender,
+            senderId: m.sender, // Correctly mapping 'sender' from DB to 'senderId' for the app
             text: m.text,
             timestamp: m.timestamp.toISOString(),
             type: "text"

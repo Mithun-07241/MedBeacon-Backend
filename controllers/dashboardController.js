@@ -68,3 +68,32 @@ exports.getDoctorSummary = async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch doctor summary' });
     }
 };
+
+exports.getPatientSummary = async (req, res) => {
+    try {
+        const { Appointment, Medication, Invoice } = req.models;
+        const patientId = req.user.id;
+
+        const [upcomingAppointments, activeMedications, invoices] = await Promise.all([
+            Appointment.find({ patientId, status: 'confirmed' }).sort({ date: 1 }).limit(5).lean(),
+            Medication.find({ patientId, status: 'active' }).limit(5).lean(),
+            Invoice.find({ patientId, status: 'sent' }).lean()
+        ]);
+
+        const pendingAmount = invoices.reduce((sum, inv) => sum + inv.total, 0);
+
+        res.json({
+            upcomingAppointments,
+            activeMedications,
+            billingSummary: {
+                pendingAmount,
+                pendingCount: invoices.length
+            },
+            healthScore: 85, // Mock or calculate
+            clinicalInsight: "Maintain current medication schedule for optimal recovery."
+        });
+    } catch (error) {
+        console.error('Get Patient Summary Error:', error);
+        res.status(500).json({ error: 'Failed to fetch patient summary' });
+    }
+};
