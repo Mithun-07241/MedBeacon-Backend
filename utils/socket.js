@@ -62,7 +62,7 @@ const initSocket = (server) => {
             if (socketId) {
                 // Forward all signaling data to the receiver
                 io.to(socketId).emit("callUser", {
-                    signal:     data.signalData,
+                    signal:     data.signalData || data.signal,  // mobile sends 'signal', web sends 'signalData'
                     from:       data.from,
                     name:       data.name,
                     profilePic: data.profilePic || null,
