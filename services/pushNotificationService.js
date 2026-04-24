@@ -43,7 +43,7 @@ const sendCallNotification = async (fcmToken, callData) => {
     }
 
     try {
-        const { callId, callerId, callerName, callerProfilePic, callType } = callData;
+        const { callId, callerId, callerName, callerProfilePic, callType, offer } = callData;
 
         // For calls, we use a data-only message on Android to ensure the app's
         // onMessageReceived handler is always triggered, even in background.
@@ -52,16 +52,17 @@ const sendCallNotification = async (fcmToken, callData) => {
             token: fcmToken,
             data: {
                 type: 'incoming_call',
-                callId,
-                callerId,
-                callerName,
+                callId: callId || '',
+                callerId: callerId || '',
+                callerName: callerName || '',
                 callerProfilePic: callerProfilePic || '',
-                callType,
+                callType: callType || 'video',
                 timestamp: Date.now().toString(),
                 // Add title and body here so they can be used by the client
                 title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType} call`,
                 body: `${callerName} is calling you...`,
-                isVideo: (callType === 'video').toString()
+                isVideo: (callType === 'video').toString(),
+                offer: offer ? JSON.stringify(offer) : ''
             },
             android: {
                 priority: 'high',

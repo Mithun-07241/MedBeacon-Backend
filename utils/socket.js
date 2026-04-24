@@ -67,14 +67,17 @@ const initSocket = (server) => {
         // ==============================
         socket.on("callUser", async (data) => {
             const socketId = onlineUsers.get(data.userToCall);
+            const signal = data.signalData || data.signal;
+
             if (socketId) {
                 // Forward all signaling data to the receiver
                 io.to(socketId).emit("callUser", {
-                    signal:     data.signalData || data.signal,  // mobile sends 'signal', web sends 'signalData'
+                    signal:     signal,
                     from:       data.from,
                     name:       data.name,
                     profilePic: data.profilePic || data.callerProfilePic || null,
-                    isVideo:    data.isVideo
+                    isVideo:    data.isVideo,
+                    callId:     data.callId
                 });
             } else {
                 // Receiver offline — try push notification
@@ -90,7 +93,8 @@ const initSocket = (server) => {
                             callerId: data.from,
                             callerName: data.name,
                             callerProfilePic: data.profilePic || data.callerProfilePic,
-                            callType: data.isVideo ? 'video' : 'audio'
+                            callType: data.isVideo ? 'video' : 'audio',
+                            offer: signal
                         });
                         console.log('✅ WebRTC Push notification sent to offline user');
                     }
@@ -102,14 +106,16 @@ const initSocket = (server) => {
             }
         });
 
-        socket.on("answerCall", ({ to, signal }) => {
+        socket.on("answerCall", (data) => {
+            const { to, signal, signalData } = data;
             const socketId = onlineUsers.get(to);
             if (socketId) {
-                io.to(socketId).emit("callAccepted", signal);
+                io.to(socketId).emit("callAccepted", signalData || signal);
             }
         });
 
-        socket.on("iceCandidate", ({ to, candidate }) => {
+        socket.on("iceCandidate", (data) => {
+            const { to, candidate } = data;
             const socketId = onlineUsers.get(to);
             if (socketId) {
                 io.to(socketId).emit("iceCandidate", candidate);
