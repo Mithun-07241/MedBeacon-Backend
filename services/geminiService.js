@@ -1,6 +1,6 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TOOL DEFINITIONS BY ROLE — every possible automation
@@ -162,7 +162,10 @@ function getToolsForRole(role) {
 function getTodayDate() { return new Date().toISOString().split('T')[0]; }
 function getTomorrowDate() { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; }
 
-// System prompt — identical logic to ollamaService.js
+// ══════════════════════════════════════════════════════════════════════════════
+// SYSTEM PROMPT — identical logic to ollamaService.js
+// ══════════════════════════════════════════════════════════════════════════════
+
 const getSystemPrompt = (userRole, dbContext = {}, bookingState = {}) => {
     const { doctors = [], specializations = [] } = dbContext;
 
@@ -179,7 +182,6 @@ const getSystemPrompt = (userRole, dbContext = {}, bookingState = {}) => {
         : 'No specializations registered yet — ask the user to check back later.';
 
     const toolsBlock = getToolsForRole(userRole);
-
     let roleContextBlock = '';
     let roleBehaviourBlock = '';
 
@@ -243,8 +245,7 @@ TIME RULES: Convert to HH:MM AM/PM format, "anytime" = 10:00 AM`;
             ? `\nPHARMACY: ${dbContext.pharmacy.totalItems} medicines, ${dbContext.pharmacy.lowStockCount} low stock, ${dbContext.pharmacy.expiringCount} expiring`
             : '';
 
-        roleContextBlock = `
-DOCTORS LIST:\n${doctorsListDisplay}${invSummary}${pharmSummary}`;
+        roleContextBlock = `\nDOCTORS LIST:\n${doctorsListDisplay}${invSummary}${pharmSummary}`;
 
         roleBehaviourBlock = `
 ROLE: DOCTOR — Full Practice Management AI Agent
@@ -270,8 +271,7 @@ BE PROACTIVE: If you notice low stock while searching, mention it. If a patient 
             ? `\nPLATFORM: ${dbContext.platformStats.totalUsers} users, ${dbContext.platformStats.totalDoctors} doctors, ${dbContext.platformStats.totalPatients} patients, ${dbContext.platformStats.totalAppointments} appointments (${dbContext.platformStats.pendingAppointments} pending)`
             : '';
 
-        roleContextBlock = `
-DOCTORS LIST:\n${doctorsListDisplay}${invSummary}${pharmSummary}${statsSummary}`;
+        roleContextBlock = `\nDOCTORS LIST:\n${doctorsListDisplay}${invSummary}${pharmSummary}${statsSummary}`;
 
         roleBehaviourBlock = `
 ROLE: ADMIN — Full Platform Command Center AI Agent
@@ -352,53 +352,80 @@ ${roleBehaviourBlock}`;
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-// CORE GEMINI CHAT FUNCTION
+// CORE GROQ CHAT FUNCTION — with retry + model fallback
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Model fallback ladder: most capable → lightest
+const MODEL_LADDER = [
+    'llama-3.3-70b-versatile',   // Best quality, handles long contexts
+    'llama3-8b-8192',            // Fast and free fallback
+    'gemma2-9b-it',              // Google Gemma fallback
+];
+
+function is429(error) {
+    return error?.status === 429 || error?.message?.includes('429') || error?.message?.toLowerCase().includes('rate limit');
+}
+
+function getRetryDelayMs(error) {
+    // Groq includes retry-after in the error or headers
+    const match = error?.message?.match(/try again in\s+([\d.]+)s/i);
+    if (match) return (parseFloat(match[1]) + 1) * 1000;
+    return 6000; // default 6s
+}
+
 async function sendChatMessage(messages, userRole = 'patient', dbContext = {}, bookingState = {}) {
-    try {
-        const model = genAI.getGenerativeModel({
-            model: 'gemini-2.0-flash',
-            systemInstruction: getSystemPrompt(userRole, dbContext, bookingState),
-            generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 2048,
+    const systemPrompt = getSystemPrompt(userRole, dbContext, bookingState);
+
+    // Groq is fully OpenAI-compatible — inject system message at the front
+    const groqMessages = [
+        { role: 'system', content: systemPrompt },
+        ...messages.filter(m => m.role !== 'system')
+    ];
+
+    for (const modelName of MODEL_LADDER) {
+        const MAX_RETRIES = 2;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                console.log(`[Groq] Using model: ${modelName}, attempt: ${attempt + 1}`);
+
+                const response = await groq.chat.completions.create({
+                    model: modelName,
+                    messages: groqMessages,
+                    temperature: 0.2,
+                    max_tokens: 2048,
+                });
+
+                // Already in OpenAI-compatible format — return as-is
+                return response;
+
+            } catch (error) {
+                const isRateLimit = is429(error);
+                const isLastAttempt = attempt === MAX_RETRIES;
+
+                if (isRateLimit) {
+                    if (!isLastAttempt) {
+                        const delayMs = getRetryDelayMs(error);
+                        console.warn(`[Groq] Rate limit on ${modelName} (attempt ${attempt + 1}). Retrying in ${delayMs / 1000}s...`);
+                        await new Promise(r => setTimeout(r, delayMs));
+                        continue;
+                    } else {
+                        console.warn(`[Groq] Rate limit exhausted on ${modelName}. Falling back to next model...`);
+                        break; // try next model
+                    }
+                }
+
+                // Non-rate-limit error: throw immediately
+                console.error(`[Groq] Error on ${modelName}:`, error.message);
+                throw new Error(error.message || 'Failed to communicate with Groq AI service');
             }
-        });
-
-        // Convert OpenAI-style messages to Gemini format
-        // Gemini uses 'user' and 'model' roles (not 'assistant')
-        const history = [];
-        const geminiMessages = messages.filter(m => m.role !== 'system');
-
-        for (let i = 0; i < geminiMessages.length - 1; i++) {
-            const msg = geminiMessages[i];
-            history.push({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content || '' }]
-            });
         }
-
-        const lastMessage = geminiMessages[geminiMessages.length - 1];
-        const chat = model.startChat({ history });
-        const result = await chat.sendMessage(lastMessage.content || '');
-        const text = result.response.text();
-
-        // Return in OpenAI-compatible format so the rest of the app works unchanged
-        return {
-            choices: [{
-                message: { role: 'assistant', content: text },
-                finish_reason: 'stop'
-            }]
-        };
-    } catch (error) {
-        console.error('Gemini API Error:', error.message);
-        throw new Error(error.message || 'Failed to communicate with Gemini AI service');
     }
+
+    throw new Error('All Groq models are currently rate-limited. Please try again in a moment.');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TOOL CALL PARSER — identical to ollamaService.js
+// TOOL CALL PARSER
 // ══════════════════════════════════════════════════════════════════════════════
 
 function parseToolCall(content) {
