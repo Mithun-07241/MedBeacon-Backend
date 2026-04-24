@@ -12,6 +12,10 @@ function setupSocketIO(io) {
         // User authentication and registration
         socket.on('register', async (userId) => {
             try {
+                // Also track in the unified 'onlineUsers' map in utils/socket.js
+                const { onlineUsers } = require('./utils/socket');
+                onlineUsers.set(userId, socket.id);
+
                 // Store user-socket mapping
                 userSockets.set(userId, socket.id);
                 socketUsers.set(socket.id, userId);
@@ -147,6 +151,10 @@ function setupSocketIO(io) {
             if (userId) {
                 userSockets.delete(userId);
                 socketUsers.delete(socket.id);
+
+                // Clean up from the unified onlineUsers map
+                const { onlineUsers } = require('./utils/socket');
+                onlineUsers.delete(userId);
 
                 // Update user offline status
                 try {

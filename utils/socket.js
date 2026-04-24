@@ -6,8 +6,9 @@ let io;
 
 const initSocket = (server) => {
     io = new Server(server, {
+        allowEIO3: true, // Support older mobile clients (Socket.io v2.x)
         cors: {
-            origin: "*", // Allowing all for development ease, restrict in prod
+            origin: "*",
             credentials: true
         }
     });
@@ -15,10 +16,17 @@ const initSocket = (server) => {
     io.on("connection", (socket) => {
         console.log("✅ Socket Connected:", socket.id);
 
-        // User Online
+        // User Online / Registration
         socket.on("user_online", (userId) => {
             onlineUsers.set(userId, socket.id);
             io.emit("online_users", Array.from(onlineUsers.keys()));
+            console.log(`User ${userId} online via 'user_online'`);
+        });
+
+        socket.on("register", (userId) => {
+            onlineUsers.set(userId, socket.id);
+            io.emit("online_users", Array.from(onlineUsers.keys()));
+            console.log(`User ${userId} registered via 'register'`);
         });
 
         // Disconnect
@@ -57,7 +65,7 @@ const initSocket = (server) => {
         // ==============================
         // WebRTC Signaling
         // ==============================
-        socket.on("callUser", (data) => {
+        socket.on("callUser", async (data) => {
             const socketId = onlineUsers.get(data.userToCall);
             if (socketId) {
                 // Forward all signaling data to the receiver
@@ -65,11 +73,31 @@ const initSocket = (server) => {
                     signal:     data.signalData || data.signal,  // mobile sends 'signal', web sends 'signalData'
                     from:       data.from,
                     name:       data.name,
-                    profilePic: data.profilePic || null,
+                    profilePic: data.profilePic || data.callerProfilePic || null,
                     isVideo:    data.isVideo
                 });
             } else {
-                // Receiver offline — notify caller
+                // Receiver offline — try push notification
+                console.log(`User ${data.userToCall} offline for WebRTC call, checking for FCM...`);
+                try {
+                    const User = require('../models/User');
+                    const { sendCallNotification } = require('../services/pushNotificationService');
+                    const receiver = await User.findOne({ id: data.userToCall });
+
+                    if (receiver && receiver.fcmToken) {
+                        await sendCallNotification(receiver.fcmToken, {
+                            callId: data.callId || `call_${Date.now()}`,
+                            callerId: data.from,
+                            callerName: data.name,
+                            callerProfilePic: data.profilePic || data.callerProfilePic,
+                            callType: data.isVideo ? 'video' : 'audio'
+                        });
+                        console.log('✅ WebRTC Push notification sent to offline user');
+                    }
+                } catch (err) {
+                    console.error('Failed push notification fallback in WebRTC signaling:', err);
+                }
+
                 socket.emit("callUser-failed", { reason: "offline", userToCall: data.userToCall });
             }
         });
@@ -93,6 +121,18 @@ const initSocket = (server) => {
             if (socketId) {
                 io.to(socketId).emit("endCall");
             }
+        });
+
+        // Add compatibility aliases for events used by mobile and different versions of the web app
+        socket.on("call:initiate", (data) => {
+            socket.emit("callUser", {
+                userToCall: data.receiverId,
+                signalData: data.offer || data.signal,
+                from: data.callerId,
+                name: data.callerName,
+                profilePic: data.callerProfilePic,
+                isVideo: data.callType === 'video'
+            });
         });
     });
 
