@@ -45,12 +45,11 @@ const sendCallNotification = async (fcmToken, callData) => {
     try {
         const { callId, callerId, callerName, callerProfilePic, callType } = callData;
 
+        // For calls, we use a data-only message on Android to ensure the app's
+        // onMessageReceived handler is always triggered, even in background.
+        // This allows the app to show its custom incoming call UI.
         const message = {
             token: fcmToken,
-            notification: {
-                title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType} call`,
-                body: `${callerName} is calling you...`,
-            },
             data: {
                 type: 'incoming_call',
                 callId,
@@ -58,22 +57,23 @@ const sendCallNotification = async (fcmToken, callData) => {
                 callerName,
                 callerProfilePic: callerProfilePic || '',
                 callType,
-                timestamp: Date.now().toString()
+                timestamp: Date.now().toString(),
+                // Add title and body here so they can be used by the client
+                title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType} call`,
+                body: `${callerName} is calling you...`,
+                isVideo: (callType === 'video').toString()
             },
             android: {
                 priority: 'high',
-                notification: {
-                    channelId: 'calls',
-                    priority: 'max',
-                    defaultSound: true,
-                    defaultVibrateTimings: true,
-                    tag: callId,
-                    sticky: true
-                }
+                // notification block is removed for Android to make it a "data-only" message
             },
             apns: {
                 payload: {
                     aps: {
+                        alert: {
+                            title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType} call`,
+                            body: `${callerName} is calling you...`,
+                        },
                         sound: 'default',
                         badge: 1,
                         category: 'CALL'
