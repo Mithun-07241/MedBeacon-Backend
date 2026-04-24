@@ -58,7 +58,6 @@ const sendCallNotification = async (fcmToken, callData) => {
                 callerProfilePic: callerProfilePic || '',
                 callType: callType || 'video',
                 timestamp: Date.now().toString(),
-                // Add title and body here so they can be used by the client
                 title: `${callType === 'video' ? '📹' : '📞'} Incoming ${callType} call`,
                 body: `${callerName} is calling you...`,
                 isVideo: (callType === 'video').toString(),
