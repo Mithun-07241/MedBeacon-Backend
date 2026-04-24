@@ -9,6 +9,7 @@
     "build": "pkg . --targets node18-win-x64 --output bin/backend"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@sendgrid/mail": "^8.1.6",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.2",

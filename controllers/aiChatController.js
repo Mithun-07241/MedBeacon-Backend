@@ -1,4 +1,4 @@
-const ollamaService = require('../services/ollamaService');
+const ollamaService = require('../services/geminiService'); // ← switched to Gemini API
 const { v4: uuidv4 } = require('uuid');
 const {
     isValidSessionId, isValidMessage, isValidSessionTitle,

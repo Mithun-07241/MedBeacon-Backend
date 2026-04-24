@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const { v4: uuidv4 } = require('uuid');
-const ollamaService = require('./ollamaService');
+const ollamaService = require('./geminiService'); // ← switched to Gemini API
 const { loadDatabaseContext } = require('./dbContextLoader');
 const { connectRegistry } = require('../config/registry');
 const { getClinicConnection } = require('../config/clinicDb');
